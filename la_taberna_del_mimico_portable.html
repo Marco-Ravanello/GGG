@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>La Taberna del Mímico - Versión Portátil</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #2c3e50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border: 4px solid #34495e;
+            border-radius: 8px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+</head>
+<body>
+    <div id="game-container"></div>
+    <script>
+        // --- state.js ---
+        const GameState = {
+            gold: 200,
+            souls: 0,
+            level: 1,
+            unlockedMonsters: ['slime'],
+            inventory: {
+                slime: 1,
+                goblin: 0,
+                orc: 0,
+                skeleton: 0
+            },
+            save() {
+                const data = {
+                    gold: this.gold,
+                    souls: this.souls,
+                    level: this.level,
+                    inventory: this.inventory,
+                    unlockedMonsters: this.unlockedMonsters
+                };
+                localStorage.setItem('mimic_tavern_save', JSON.stringify(data));
+            },
+            load() {
+                const saved = localStorage.getItem('mimic_tavern_save');
+                if (saved) {
+                    const data = JSON.parse(saved);
+                    this.gold = data.gold ?? this.gold;
+                    this.souls = data.souls ?? this.souls;
+                    this.level = data.level ?? this.level;
+                    this.inventory = data.inventory ?? this.inventory;
+                    this.unlockedMonsters = data.unlockedMonsters ?? this.unlockedMonsters;
+                }
+            }
+        };
+
+        // --- map.js ---
+        const MAP_CONFIG = {
+            tileWidth: 64,
+            tileHeight: 64,
+            rows: 20,
+            cols: 11,
+            offsetX: 8
+        };
+        const PATH_POINTS = [
+            {x: 10, y: 1}, {x: 9, y: 1}, {x: 8, y: 1}, {x: 7, y: 1}, {x: 6, y: 1}, {x: 5, y: 1}, {x: 4, y: 1}, {x: 3, y: 1}, {x: 2, y: 1}, {x: 1, y: 1},
+            {x: 1, y: 2}, {x: 1, y: 3}, {x: 1, y: 4}, {x: 1, y: 5},
+            {x: 2, y: 5}, {x: 3, y: 5}, {x: 4, y: 5}, {x: 5, y: 5}, {x: 6, y: 5}, {x: 7, y: 5}, {x: 8, y: 5}, {x: 9, y: 5},
+            {x: 9, y: 6}, {x: 9, y: 7}, {x: 9, y: 8}, {x: 9, y: 9},
+            {x: 8, y: 9}, {x: 7, y: 9}, {x: 6, y: 9}, {x: 5, y: 9}, {x: 4, y: 9}, {x: 3, y: 9}, {x: 2, y: 9}, {x: 1, y: 9},
+            {x: 1, y: 10}, {x: 1, y: 11}, {x: 1, y: 12}, {x: 1, y: 13},
+            {x: 2, y: 13}, {x: 3, y: 13}, {x: 4, y: 13}, {x: 5, y: 13}, {x: 6, y: 13}, {x: 7, y: 13}, {x: 8, y: 13}, {x: 9, y: 13},
+            {x: 9, y: 14}, {x: 9, y: 15}, {x: 9, y: 16}, {x: 9, y: 17},
+            {x: 8, y: 17}, {x: 7, y: 17}, {x: 6, y: 17}, {x: 5, y: 17}, {x: 4, y: 17}, {x: 3, y: 17}, {x: 2, y: 17}, {x: 1, y: 17}
+        ];
+        function getWorldPos(col, row) {
+            return {
+                x: MAP_CONFIG.offsetX + col * MAP_CONFIG.tileWidth + MAP_CONFIG.tileWidth / 2,
+                y: row * MAP_CONFIG.tileHeight + MAP_CONFIG.tileHeight / 2
+            };
+        }
+
+        // --- assets.js ---
+        const createBaseAssets = (scene) => {
+            const grass = scene.make.graphics({ x: 0, y: 0, add: false });
+            grass.fillStyle(0x4a7c44, 1); grass.fillRect(0, 0, 64, 64);
+            grass.lineStyle(2, 0x3d6638, 1); grass.strokeRect(0, 0, 64, 64);
+            grass.generateTexture('tile_grass', 64, 64);
+
+            const path = scene.make.graphics({ x: 0, y: 0, add: false });
+            path.fillStyle(0x8d715a, 1); path.fillRect(0, 0, 64, 64);
+            path.lineStyle(2, 0x7a624e, 1); path.strokeRect(0, 0, 64, 64);
+            path.generateTexture('tile_path', 64, 64);
+
+            const knight = scene.make.graphics({ x: 0, y: 0, add: false });
+            knight.fillStyle(0xbdc3c7, 1); knight.fillCircle(32, 32, 20);
+            knight.fillStyle(0x2c3e50, 1); knight.fillCircle(32, 20, 8);
+            knight.fillStyle(0xe74c3c, 1); knight.fillRect(20, 45, 24, 5);
+            knight.generateTexture('hero_knight', 64, 64);
+
+            const slime = scene.make.graphics({ x: 0, y: 0, add: false });
+            slime.fillStyle(0xf1c40f, 1); slime.fillEllipse(32, 40, 45, 35);
+            slime.fillStyle(0xffffff, 0.8); slime.fillCircle(32, 25, 15);
+            slime.generateTexture('tower_slime', 64, 64);
+
+            const invasorTex = scene.make.graphics({ x: 0, y: 0, add: false });
+            invasorTex.fillStyle(0x00d2ff, 1); invasorTex.fillCircle(32, 32, 10);
+            invasorTex.fillStyle(0xffffff, 0.6); invasorTex.fillEllipse(20, 32, 20, 10); invasorTex.fillEllipse(44, 32, 20, 10);
+            invasorTex.generateTexture('invasor', 64, 64);
+        };
+
+        // --- entities.js ---
+        class Hero extends Phaser.GameObjects.Container {
+            constructor(scene, path, config) {
+                const startPos = getWorldPos(path[0].x, path[0].y);
+                super(scene, startPos.x, startPos.y);
+                this.scene = scene; this.path = path; this.pathIndex = 0;
+                this.speed = config.speed || 100; this.hp = config.hp || 100; this.maxHp = this.hp; this.gold = config.gold || 10;
+                this.sprite = scene.add.sprite(0, 0, config.texture || 'hero_knight');
+                this.add(this.sprite);
+                this.hpBar = scene.add.graphics(); this.add(this.hpBar);
+                this.updateHpBar();
+                scene.add.existing(this); scene.physics.add.existing(this);
+            }
+            updateHpBar() {
+                this.hpBar.clear();
+                this.hpBar.fillStyle(0x000000); this.hpBar.fillRect(-20, -35, 40, 5);
+                this.hpBar.fillStyle(0xff0000); this.hpBar.fillRect(-20, -35, 40 * (this.hp / this.maxHp), 5);
+            }
+            takeDamage(amount) {
+                this.hp -= amount; this.updateHpBar();
+                if (this.hp <= 0) { this.scene.events.emit('hero_defeated', this.gold); this.destroy(); }
+            }
+            update(time, delta) {
+                if (this.pathIndex >= this.path.length - 1) { this.scene.events.emit('hero_escaped', this.gold); this.destroy(); return; }
+                const target = getWorldPos(this.path[this.pathIndex + 1].x, this.path[this.pathIndex + 1].y);
+                const distance = Phaser.Math.Distance.Between(this.x, this.y, target.x, target.y);
+                if (distance < 5) { this.pathIndex++; } else {
+                    const angle = Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y);
+                    this.x += Math.cos(angle) * this.speed * (delta / 1000);
+                    this.y += Math.sin(angle) * this.speed * (delta / 1000);
+                }
+            }
+        }
+
+        // --- towers.js ---
+        class Tower extends Phaser.GameObjects.Container {
+            constructor(scene, x, y, config) {
+                super(scene, x, y);
+                this.scene = scene; this.damage = config.damage || 10; this.range = config.range || 150;
+                this.fireRate = config.fireRate || 1000; this.lastFired = 0;
+                this.sprite = scene.add.sprite(0, 0, config.texture); this.add(this.sprite);
+                scene.add.existing(this);
+            }
+            update(time, delta, enemies) {
+                if (time < this.lastFired + this.fireRate) return;
+                const target = enemies.find(e => e.active && Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y) <= this.range);
+                if (target) { this.fire(target); this.lastFired = time; }
+            }
+            fire(target) {
+                const line = this.scene.add.graphics(); line.lineStyle(3, 0xffff00, 1); line.lineBetween(this.x, this.y, target.x, target.y);
+                this.scene.tweens.add({ targets: line, alpha: 0, duration: 200, onComplete: () => line.destroy() });
+                target.takeDamage(this.damage);
+            }
+        }
+
+        // --- invasor.js ---
+        class Invasor extends Phaser.GameObjects.Sprite {
+            constructor(scene) {
+                const startY = Phaser.Math.Between(200, 1000);
+                super(scene, -50, startY, 'invasor');
+                this.scene = scene; scene.add.existing(this); this.setInteractive();
+                this.on('pointerdown', () => this.claimReward());
+                this.speed = Phaser.Math.Between(150, 250);
+                scene.tweens.add({ targets: this, y: startY + 50, duration: 1000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+            }
+            update(time, delta) { this.x += this.speed * (delta / 1000); if (this.x > 770) this.destroy(); }
+            claimReward() {
+                GameState.souls += 5; GameState.save(); this.scene.events.emit('ui_update');
+                const text = this.scene.add.text(this.x, this.y, '+5 Almas!', { fontSize: '32px', fill: '#9b59b6', fontStyle: 'bold' }).setOrigin(0.5);
+                this.scene.tweens.add({ targets: text, y: this.y - 100, alpha: 0, duration: 1000, onComplete: () => text.destroy() });
+                this.destroy();
+            }
+        }
+
+        // --- ui.js ---
+        class UIScene extends Phaser.Scene {
+            constructor() { super('UIScene'); }
+            create() {
+                const topBar = this.add.graphics(); topBar.fillStyle(0x000000, 0.7); topBar.fillRect(0, 0, 720, 80);
+                this.goldText = this.add.text(20, 20, `Oro: ${GameState.gold}`, { fontSize: '32px', fill: '#f1c40f', fontStyle: 'bold' });
+                this.soulsText = this.add.text(350, 20, `Almas: ${GameState.souls}`, { fontSize: '32px', fill: '#9b59b6', fontStyle: 'bold' });
+                const bottomBar = this.add.graphics(); bottomBar.fillStyle(0x000000, 0.7); bottomBar.fillRect(0, 1180, 720, 100);
+                this.add.text(360, 1230, 'TABERNA | MONSTRUOS | INVOCAR | TIENDA', { fontSize: '24px', fill: '#ffffff' }).setOrigin(0.5);
+                const mainGame = this.scene.get('GameScene');
+                mainGame.events.on('ui_update', () => { this.goldText.setText(`Oro: ${GameState.gold}`); this.soulsText.setText(`Almas: ${GameState.souls}`); });
+            }
+        }
+
+        // --- main.js ---
+        class GameScene extends Phaser.Scene {
+            constructor() {
+                super('GameScene');
+                this.enemies = []; this.towers = []; this.invasors = [];
+                this.nextWaveTime = 0; this.nextInvasorTime = 5000;
+            }
+            create() {
+                GameState.load(); createBaseAssets(this); this.drawMap();
+                this.scene.launch('UIScene');
+                this.events.on('hero_defeated', (gold) => { GameState.gold += gold; GameState.souls += 1; GameState.save(); this.events.emit('ui_update'); });
+                this.events.on('hero_escaped', (gold) => { GameState.gold = Math.max(0, GameState.gold - gold); GameState.save(); this.events.emit('ui_update'); });
+                this.input.on('pointerdown', (pointer) => { this.placeTower(pointer.x, pointer.y); });
+            }
+            drawMap() {
+                for (let r = 0; r < MAP_CONFIG.rows; r++) {
+                    for (let c = 0; c < MAP_CONFIG.cols; c++) {
+                        const pos = getWorldPos(c, r); this.add.image(pos.x, pos.y, 'tile_grass');
+                    }
+                }
+                PATH_POINTS.forEach(p => { const pos = getWorldPos(p.x, p.y); this.add.image(pos.x, pos.y, 'tile_path'); });
+            }
+            placeTower(x, y) {
+                const col = Math.floor((x - MAP_CONFIG.offsetX) / MAP_CONFIG.tileWidth);
+                const row = Math.floor(y / MAP_CONFIG.tileHeight);
+                if (col < 0 || col >= MAP_CONFIG.cols || row < 0 || row >= MAP_CONFIG.rows) return;
+                if (PATH_POINTS.some(p => p.x === col && p.y === row)) return;
+                if (this.towers.some(t => Math.floor((t.x - MAP_CONFIG.offsetX) / 64) === col && Math.floor(t.y / 64) === row)) return;
+
+                if (GameState.gold >= 50) {
+                    const pos = getWorldPos(col, row);
+                    const tower = new Tower(this, pos.x, pos.y, { type: 'slime', texture: 'tower_slime', damage: 15, range: 150, fireRate: 800 });
+                    this.towers.push(tower); GameState.gold -= 50; GameState.save(); this.events.emit('ui_update');
+                }
+            }
+            update(time, delta) {
+                if (time > this.nextWaveTime) { this.spawnHero(); this.nextWaveTime = time + 3000; }
+                if (time > this.nextInvasorTime) { this.spawnInvasor(); this.nextInvasorTime = time + Phaser.Math.Between(10000, 20000); }
+                this.invasors = this.invasors.filter(inv => { if (inv.active) { inv.update(time, delta); return true; } return false; });
+                this.enemies = this.enemies.filter(e => { if (e.active) { e.update(time, delta); return true; } return false; });
+                this.towers.forEach(t => t.update(time, delta, this.enemies));
+            }
+            spawnHero() { const hero = new Hero(this, PATH_POINTS, { speed: 120, hp: 50, gold: 15, texture: 'hero_knight' }); this.enemies.push(hero); }
+            spawnInvasor() { const inv = new Invasor(this); this.invasors.push(inv); }
+        }
+
+        const config = {
+            type: Phaser.AUTO, width: 720, height: 1280, parent: 'game-container',
+            scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+            physics: { default: 'arcade', arcade: { debug: false } },
+            scene: [GameScene, UIScene]
+        };
+        const game = new Phaser.Game(config);
+    </script>
+</body>
+</html>
