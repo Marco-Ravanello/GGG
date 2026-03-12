@@ -1,10 +1,10 @@
-import { createBaseAssets } from './assets.js';
 import { MAP_CONFIG, PATH_POINTS, getWorldPos } from './map.js';
 import { Hero } from './entities.js';
 import { Tower } from './towers.js';
 import { GameState } from './state.js';
 import { UIScene } from './ui.js';
 import { Invasor } from './invasor.js';
+import { ASSETS } from './assets_urls.js';
 
 class GameScene extends Phaser.Scene {
     constructor() {
@@ -17,12 +17,15 @@ class GameScene extends Phaser.Scene {
     }
 
     preload() {
-        // Assets are generated procedurally in create
+        this.load.image('tile_grass', ASSETS.tile_grass);
+        this.load.image('tile_path', ASSETS.tile_path);
+        this.load.image('hero_knight', ASSETS.hero_knight);
+        this.load.image('tower_slime', ASSETS.tower_slime);
+        this.load.image('invasor', ASSETS.invasor);
     }
 
     create() {
         GameState.load();
-        createBaseAssets(this);
         this.drawMap();
 
         this.scene.launch('UIScene');
@@ -68,16 +71,17 @@ class GameScene extends Phaser.Scene {
     }
 
     placeTower(x, y) {
+        // Only place if shop interaction is active (to be added in UI step)
+        if (!this.isPlacingTower) return;
+
         const col = Math.floor((x - MAP_CONFIG.offsetX) / MAP_CONFIG.tileWidth);
         const row = Math.floor(y / MAP_CONFIG.tileHeight);
 
-        // Boundaries check
         if (col < 0 || col >= MAP_CONFIG.cols || row < 0 || row >= MAP_CONFIG.rows) return;
 
         const isOnPath = PATH_POINTS.some(p => p.x === col && p.y === row);
         if (isOnPath) return;
 
-        // Check if tower already exists at this location
         const isOccupied = this.towers.some(t => {
             const tCol = Math.floor((t.x - MAP_CONFIG.offsetX) / MAP_CONFIG.tileWidth);
             const tRow = Math.floor(t.y / MAP_CONFIG.tileHeight);
@@ -99,6 +103,8 @@ class GameScene extends Phaser.Scene {
             GameState.gold -= 50;
             GameState.save();
             this.updateUI();
+            this.isPlacingTower = false; // Reset after placement
+            this.events.emit('placement_finished');
         }
     }
 

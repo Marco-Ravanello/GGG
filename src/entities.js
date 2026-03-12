@@ -42,7 +42,7 @@ export class Hero extends Phaser.GameObjects.Container {
     }
 
     die() {
-        this.scene.events.emit('hero_defeated', this.gold);
+        this.scene.events.emit('hero_defeated', 10); // +10 Gold on kill as requested
         this.destroy();
     }
 

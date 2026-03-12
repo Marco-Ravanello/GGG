@@ -6,38 +6,76 @@ export class UIScene extends Phaser.Scene {
     }
 
     create() {
+        const mainGame = this.scene.get('GameScene');
+
         // Top Bar
         const topBar = this.add.graphics();
-        topBar.fillStyle(0x000000, 0.7);
+        topBar.fillStyle(0x000000, 0.8);
         topBar.fillRect(0, 0, 720, 80);
+        topBar.depth = 100;
 
         this.goldText = this.add.text(20, 20, `Oro: ${GameState.gold}`, {
             fontSize: '32px',
             fill: '#f1c40f',
             fontStyle: 'bold'
-        });
+        }).setDepth(101);
 
         this.soulsText = this.add.text(350, 20, `Almas: ${GameState.souls}`, {
             fontSize: '32px',
             fill: '#9b59b6',
             fontStyle: 'bold'
+        }).setDepth(101);
+
+        // Shop Button
+        this.shopButton = this.add.container(360, 1100);
+        const btnBg = this.add.graphics();
+        btnBg.fillStyle(0x27ae60, 1);
+        btnBg.fillRoundedRect(-150, -30, 300, 60, 10);
+        btnBg.lineStyle(2, 0xffffff, 1);
+        btnBg.strokeRoundedRect(-150, -30, 300, 60, 10);
+
+        this.shopText = this.add.text(0, 0, 'Comprar Monstruo (50 Oro)', {
+            fontSize: '22px',
+            fill: '#ffffff',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        this.shopButton.add([btnBg, this.shopText]);
+        this.shopButton.setInteractive(new Phaser.Geom.Rectangle(-150, -30, 300, 60), Phaser.Geom.Rectangle.Contains);
+
+        this.shopButton.on('pointerdown', () => {
+            if (GameState.gold >= 50) {
+                mainGame.isPlacingTower = true;
+                this.shopText.setText('Selecciona en el mapa...');
+                this.shopText.setFill('#f1c40f');
+            } else {
+                this.shopText.setText('¡Falta Oro!');
+                this.time.delayedCall(1000, () => {
+                    this.shopText.setText('Comprar Monstruo (50 Oro)');
+                });
+            }
         });
 
         // Bottom Bar (Draft)
         const bottomBar = this.add.graphics();
-        bottomBar.fillStyle(0x000000, 0.7);
+        bottomBar.fillStyle(0x000000, 0.8);
         bottomBar.fillRect(0, 1180, 720, 100);
+        bottomBar.depth = 100;
 
         this.add.text(360, 1230, 'TABERNA | MONSTRUOS | INVOCAR | TIENDA', {
             fontSize: '24px',
             fill: '#ffffff'
-        }).setOrigin(0.5);
+        }).setOrigin(0.5).setDepth(101);
 
-        // Listen for updates from GameScene
-        const mainGame = this.scene.get('GameScene');
+        // Listen for updates
         mainGame.events.on('ui_update', () => {
             this.goldText.setText(`Oro: ${GameState.gold}`);
             this.soulsText.setText(`Almas: ${GameState.souls}`);
+        });
+
+        mainGame.events.on('placement_finished', () => {
+            this.shopText.setText('Comprar Monstruo (50 Oro)');
+            this.shopText.setFill('#ffffff');
         });
     }
 }
