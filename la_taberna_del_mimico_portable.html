@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>La Taberna del Mímico - Versión 2 (Mejorada)</title>
+    <title>La Taberna del Mímico - Versión 3 (Gacha & Oleadas)</title>
     <style>
-        body { margin: 0; padding: 0; background-color: #2c3e50; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-        #game-container { box-shadow: 0 0 20px rgba(0,0,0,0.5); border: 4px solid #34495e; border-radius: 8px; }
+        body { margin: 0; padding: 0; background-color: #1a0f00; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        #game-container { box-shadow: 0 0 20px rgba(0,0,0,0.8); border: 4px solid #3d2b1f; border-radius: 8px; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
 </head>
@@ -14,9 +14,9 @@
     <div id="game-container"></div>
     <script>
         const GameState = {
-            gold: 200, souls: 0,
-            save() { localStorage.setItem('mimic_tavern_save_v2', JSON.stringify({gold: this.gold, souls: this.souls})); },
-            load() { const saved = localStorage.getItem('mimic_tavern_save_v2'); if (saved) { const data = JSON.parse(saved); this.gold = data.gold; this.souls = data.souls; } }
+            gold: 200, souls: 0, wave: 1, monstersPurchased: 0,
+            save() { localStorage.setItem('mimic_tavern_save_v3', JSON.stringify({gold: this.gold, souls: this.souls, wave: this.wave, monstersPurchased: this.monstersPurchased})); },
+            load() { const saved = localStorage.getItem('mimic_tavern_save_v3'); if (saved) { const data = JSON.parse(saved); this.gold = data.gold; this.souls = data.souls; this.wave = data.wave || 1; this.monstersPurchased = data.monstersPurchased || 0; } }
         };
 
         const MAP_CONFIG = { tileWidth: 64, tileHeight: 64, rows: 20, cols: 11, offsetX: 8 };
@@ -34,18 +34,18 @@
         function getWorldPos(col, row) { return { x: MAP_CONFIG.offsetX + col * 64 + 32, y: row * 64 + 32 }; }
 
         class Hero extends Phaser.GameObjects.Container {
-            constructor(scene, path) {
+            constructor(scene, path, hp, loot) {
                 const startPos = getWorldPos(path[0].x, path[0].y);
                 super(scene, startPos.x, startPos.y);
-                this.scene = scene; this.path = path; this.pathIndex = 0; this.hp = 50; this.maxHp = 50;
+                this.scene = scene; this.path = path; this.pathIndex = 0; this.hp = hp; this.maxHp = hp; this.loot = loot;
                 this.sprite = scene.add.sprite(0, 0, 'hero_knight'); this.add(this.sprite);
                 this.hpBar = scene.add.graphics(); this.add(this.hpBar); this.updateHpBar();
                 scene.add.existing(this); scene.physics.add.existing(this);
             }
             updateHpBar() { this.hpBar.clear(); this.hpBar.fillStyle(0x000000); this.hpBar.fillRect(-20, -35, 40, 5); this.hpBar.fillStyle(0xff0000); this.hpBar.fillRect(-20, -35, 40 * (this.hp / this.maxHp), 5); }
-            takeDamage(amount) { this.hp -= amount; this.updateHpBar(); if (this.hp <= 0) { this.scene.events.emit('hero_defeated', 10); this.destroy(); } }
+            takeDamage(amount) { this.hp -= amount; this.updateHpBar(); if (this.hp <= 0) { this.scene.events.emit('hero_defeated', this.loot); this.destroy(); } }
             update(time, delta) {
-                if (this.pathIndex >= this.path.length - 1) { this.destroy(); return; }
+                if (this.pathIndex >= this.path.length - 1) { this.scene.events.emit('hero_escaped', this.loot); this.destroy(); return; }
                 const target = getWorldPos(this.path[this.pathIndex + 1].x, this.path[this.pathIndex + 1].y);
                 const distance = Phaser.Math.Distance.Between(this.x, this.y, target.x, target.y);
                 if (distance < 5) this.pathIndex++; else {
@@ -56,18 +56,21 @@
         }
 
         class Tower extends Phaser.GameObjects.Container {
-            constructor(scene, x, y) {
-                super(scene, x, y); this.scene = scene; this.lastFired = 0;
-                this.sprite = scene.add.sprite(0, 0, 'tower_slime'); this.add(this.sprite);
+            constructor(scene, x, y, config) {
+                super(scene, x, y); this.scene = scene; this.lastFired = 0; this.config = config;
+                this.sprite = scene.add.sprite(0, 0, 'tower_slime');
+                if (config.tint) this.sprite.setTint(config.tint);
+                this.add(this.sprite);
                 scene.add.existing(this);
             }
             update(time, enemies) {
-                if (time < this.lastFired + 800) return;
-                const target = enemies.find(e => e.active && Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y) <= 150);
+                if (time < this.lastFired + this.config.fireRate) return;
+                const target = enemies.find(e => e.active && Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y) <= this.config.range);
                 if (target) {
-                    const line = this.scene.add.graphics(); line.lineStyle(3, 0xffff00, 1); line.lineBetween(this.x, this.y, target.x, target.y);
+                    const color = this.config.type === 'red' ? 0xff0000 : 0xffff00;
+                    const line = this.scene.add.graphics(); line.lineStyle(3, color, 1); line.lineBetween(this.x, this.y, target.x, target.y);
                     this.scene.tweens.add({ targets: line, alpha: 0, duration: 200, onComplete: () => line.destroy() });
-                    target.takeDamage(15); this.lastFired = time;
+                    target.takeDamage(this.config.damage); this.lastFired = time;
                 }
             }
         }
@@ -85,29 +88,51 @@
             constructor() { super('UIScene'); }
             create() {
                 const mainGame = this.scene.get('GameScene');
-                this.add.graphics().fillStyle(0x000000, 0.8).fillRect(0, 0, 720, 80).setDepth(100);
+                this.add.graphics().fillStyle(0x000000, 0.8).fillRect(0, 0, 720, 130).setDepth(100);
                 this.goldText = this.add.text(20, 20, `Oro: ${GameState.gold}`, { fontSize: '32px', fill: '#f1c40f', fontStyle: 'bold' }).setDepth(101);
                 this.soulsText = this.add.text(350, 20, `Almas: ${GameState.souls}`, { fontSize: '32px', fill: '#9b59b6', fontStyle: 'bold' }).setDepth(101);
+                this.waveText = this.add.text(20, 75, `Oleada: ${GameState.wave}`, { fontSize: '28px', fill: '#ecf0f1', fontStyle: 'bold' }).setDepth(101);
 
                 const shopBtn = this.add.container(360, 1100).setInteractive(new Phaser.Geom.Rectangle(-150, -30, 300, 60), Phaser.Geom.Rectangle.Contains);
                 const btnBg = this.add.graphics().fillStyle(0x27ae60, 1).fillRoundedRect(-150, -30, 300, 60, 10).lineStyle(2, 0xffffff, 1).strokeRoundedRect(-150, -30, 300, 60, 10);
-                const shopTxt = this.add.text(0, 0, 'Comprar Monstruo (50 Oro)', { fontSize: '22px', fill: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
-                shopBtn.add([btnBg, shopTxt]);
+                this.shopTxt = this.add.text(0, 0, '', { fontSize: '22px', fill: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
+                shopBtn.add([btnBg, this.shopTxt]);
+                this.updateShopTxt();
 
                 shopBtn.on('pointerdown', () => {
-                    if (GameState.gold >= 50) { mainGame.isPlacingTower = true; shopTxt.setText('Selecciona en el mapa...'); shopTxt.setFill('#f1c40f'); }
-                    else { shopTxt.setText('¡Falta Oro!'); this.time.delayedCall(1000, () => shopTxt.setText('Comprar Monstruo (50 Oro)')); }
+                    const cost = 50 + (GameState.monstersPurchased * 10);
+                    if (GameState.gold >= cost) {
+                        GameState.gold -= cost;
+                        GameState.monstersPurchased++;
+                        GameState.save();
+                        mainGame.events.emit('ui_update');
+
+                        const type = Math.random() < 0.7 ? 'slime' : 'red';
+                        mainGame.startPlacement(type);
+                        this.shopTxt.setText('Selecciona en el mapa...'); this.shopTxt.setFill('#f1c40f');
+                    } else {
+                        this.shopTxt.setText('¡Falta Oro!'); this.time.delayedCall(1000, () => this.updateShopTxt());
+                    }
                 });
 
-                mainGame.events.on('ui_update', () => { this.goldText.setText(`Oro: ${GameState.gold}`); this.soulsText.setText(`Almas: ${GameState.souls}`); });
-                mainGame.events.on('placement_finished', () => { shopTxt.setText('Comprar Monstruo (50 Oro)'); shopTxt.setFill('#ffffff'); });
+                mainGame.events.on('ui_update', () => {
+                    this.goldText.setText(`Oro: ${GameState.gold}`);
+                    this.soulsText.setText(`Almas: ${GameState.souls}`);
+                    this.waveText.setText(`Oleada: ${GameState.wave}`);
+                    this.updateShopTxt();
+                });
+                mainGame.events.on('placement_finished', () => { this.updateShopTxt(); this.shopTxt.setFill('#ffffff'); });
+            }
+            updateShopTxt() {
+                const cost = 50 + (GameState.monstersPurchased * 10);
+                this.shopTxt.setText(`Invocar Monstruo (${cost} Oro)`);
             }
         }
 
         class GameScene extends Phaser.Scene {
-            constructor() { super('GameScene'); this.enemies = []; this.towers = []; this.invasors = []; this.nextWaveTime = 0; this.nextInvasorTime = 5000; }
+            constructor() { super('GameScene'); this.enemies = []; this.towers = []; this.invasors = []; this.nextWaveTime = 0; this.nextInvasorTime = 5000; this.enemiesSpawnedInWave = 0; this.isWaveActive = false; this.waveWaitTimer = 0; }
             preload() {
-                this.load.image('tile_grass', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/skies/space2.png');
+                this.load.image('tile_wood', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/textures/wood.png');
                 this.load.image('tile_path', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/tilemaps/tiles/tmw_desert_spacing.png');
                 this.load.image('hero_knight', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/phaser-dude.png');
                 this.load.image('tower_slime', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/slime.png');
@@ -115,26 +140,50 @@
             }
             create() {
                 GameState.load();
-                for (let r = 0; r < 20; r++) for (let c = 0; c < 11; c++) { const pos = getWorldPos(c, r); this.add.image(pos.x, pos.y, 'tile_grass').setDisplaySize(64, 64); }
+                for (let r = 0; r < 20; r++) for (let c = 0; c < 11; c++) {
+                    const pos = getWorldPos(c, r);
+                    this.add.image(pos.x, pos.y, 'tile_wood').setDisplaySize(64, 64).setTint(0x442200);
+                }
                 PATH_POINTS.forEach(p => { const pos = getWorldPos(p.x, p.y); this.add.image(pos.x, pos.y, 'tile_path').setDisplaySize(64, 64); });
                 this.scene.launch('UIScene');
                 this.events.on('hero_defeated', (g) => { GameState.gold += g; GameState.souls += 1; GameState.save(); this.events.emit('ui_update'); });
+                this.events.on('hero_escaped', (g) => { GameState.gold = Math.max(0, GameState.gold - g); GameState.save(); this.events.emit('ui_update'); });
                 this.input.on('pointerdown', (p) => {
                     if (!this.isPlacingTower) return;
                     const c = Math.floor((p.x - 8) / 64), r = Math.floor(p.y / 64);
                     if (c<0 || c>=11 || r<0 || r>=20 || PATH_POINTS.some(path => path.x === c && path.y === r)) return;
-                    const isOccupied = this.towers.some(t => {
-                        const tCol = Math.floor((t.x - 8) / 64);
-                        const tRow = Math.floor(t.y / 64);
-                        return tCol === c && tRow === r;
-                    });
-                    if (isOccupied) return;
-                    const pos = getWorldPos(c, r); this.towers.push(new Tower(this, pos.x, pos.y));
-                    GameState.gold -= 50; GameState.save(); this.events.emit('ui_update'); this.isPlacingTower = false; this.events.emit('placement_finished');
+                    if (this.towers.some(t => Math.floor((t.x - 8) / 64) === c && Math.floor(t.y / 64) === r)) return;
+
+                    const towerConfig = this.pendingMonsterType === 'slime' ? { type: 'slime', damage: 15, range: 150, fireRate: 800 } : { type: 'red', damage: 40, range: 250, fireRate: 1500, tint: 0xff0000 };
+
+                    const pos = getWorldPos(c, r); this.towers.push(new Tower(this, pos.x, pos.y, towerConfig));
+                    this.isPlacingTower = false; if (this.preview) this.preview.destroy();
+                    this.events.emit('ui_update'); this.events.emit('placement_finished');
                 });
+                this.input.on('pointermove', (p) => { if (this.isPlacingTower && this.preview) { this.preview.x = p.x; this.preview.y = p.y; } });
+            }
+            startPlacement(type) {
+                if (this.preview) this.preview.destroy();
+                this.isPlacingTower = true; this.pendingMonsterType = type;
+                this.preview = this.add.sprite(0, 0, 'tower_slime').setAlpha(0.6).setDepth(200);
+                if (type === 'red') this.preview.setTint(0xff0000);
             }
             update(time, delta) {
-                if (time > this.nextWaveTime) { this.enemies.push(new Hero(this, PATH_POINTS)); this.nextWaveTime = time + 3000; }
+                if (!this.isWaveActive) {
+                    if (this.waveWaitTimer > 0) this.waveWaitTimer -= delta;
+                    else { this.isWaveActive = true; this.enemiesSpawnedInWave = 0; this.events.emit('ui_update'); }
+                } else {
+                    if (this.enemiesSpawnedInWave < 10) {
+                        if (time > this.nextWaveTime) {
+                            const hp = Math.round(50 * Math.pow(1.15, GameState.wave - 1));
+                            const loot = Math.round(15 * Math.pow(1.10, GameState.wave - 1));
+                            this.enemies.push(new Hero(this, PATH_POINTS, hp, loot));
+                            this.enemiesSpawnedInWave++; this.nextWaveTime = time + 2000;
+                        }
+                    } else if (this.enemies.length === 0) {
+                        this.isWaveActive = false; GameState.wave++; GameState.save(); this.waveWaitTimer = 3000; this.events.emit('ui_update');
+                    }
+                }
                 if (time > this.nextInvasorTime) { this.invasors.push(new Invasor(this)); this.nextInvasorTime = time + Phaser.Math.Between(10000, 20000); }
                 this.invasors = this.invasors.filter(i => { if (i.active) { i.update(delta); return true; } return false; });
                 this.enemies = this.enemies.filter(e => { if (e.active) { e.update(time, delta); return true; } return false; });

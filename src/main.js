@@ -14,6 +14,12 @@ class GameScene extends Phaser.Scene {
         this.invasors = [];
         this.nextWaveTime = 0;
         this.nextInvasorTime = 5000;
+
+        // Wave management
+        this.enemiesSpawnedInWave = 0;
+        this.maxEnemiesPerWave = 10;
+        this.isWaveActive = false;
+        this.waveWaitTimer = 0;
     }
 
     preload() {
@@ -52,6 +58,24 @@ class GameScene extends Phaser.Scene {
         this.input.on('pointerdown', (pointer) => {
             this.placeTower(pointer.x, pointer.y);
         });
+
+        // Mouse move for placement preview
+        this.input.on('pointermove', (pointer) => {
+            if (this.isPlacingTower && this.placementPreview) {
+                this.placementPreview.x = pointer.x;
+                this.placementPreview.y = pointer.y;
+            }
+        });
+    }
+
+    startPlacement(type) {
+        if (this.placementPreview) this.placementPreview.destroy();
+        this.isPlacingTower = true;
+        this.pendingMonsterType = type;
+
+        const texture = 'tower_slime';
+        this.placementPreview = this.add.sprite(0, 0, texture).setAlpha(0.6).setDepth(200);
+        if (type === 'red_monster') this.placementPreview.setTint(0xff0000);
     }
 
     drawMap() {
@@ -59,7 +83,9 @@ class GameScene extends Phaser.Scene {
         for (let r = 0; r < MAP_CONFIG.rows; r++) {
             for (let c = 0; c < MAP_CONFIG.cols; c++) {
                 const pos = getWorldPos(c, r);
-                this.add.image(pos.x, pos.y, 'tile_grass');
+                const tile = this.add.image(pos.x, pos.y, 'tile_grass');
+                tile.setDisplaySize(64, 64);
+                tile.setTint(0x442200); // Darker wood for tavern feel
             }
         }
 
@@ -91,21 +117,30 @@ class GameScene extends Phaser.Scene {
 
         const pos = getWorldPos(col, row);
 
-        if (GameState.gold >= 50) {
-            const tower = new Tower(this, pos.x, pos.y, {
-                type: 'slime',
-                texture: 'tower_slime',
-                damage: 15,
-                range: 150,
-                fireRate: 800
-            });
-            this.towers.push(tower);
-            GameState.gold -= 50;
-            GameState.save();
-            this.updateUI();
-            this.isPlacingTower = false; // Reset after placement
-            this.events.emit('placement_finished');
+        const towerData = this.pendingMonsterType === 'slime' ? {
+            type: 'slime',
+            texture: 'tower_slime',
+            damage: 15,
+            range: 150,
+            fireRate: 800
+        } : {
+            type: 'red_monster',
+            texture: 'tower_slime',
+            damage: 40,
+            range: 250,
+            fireRate: 1500,
+            tint: 0xff0000
+        };
+
+        const tower = new Tower(this, pos.x, pos.y, towerData);
+        this.towers.push(tower);
+
+        this.isPlacingTower = false;
+        if (this.placementPreview) {
+            this.placementPreview.destroy();
+            this.placementPreview = null;
         }
+        this.events.emit('placement_finished');
     }
 
     updateUI() {
@@ -114,10 +149,22 @@ class GameScene extends Phaser.Scene {
     }
 
     update(time, delta) {
-        // Spawn waves
-        if (time > this.nextWaveTime) {
-            this.spawnHero();
-            this.nextWaveTime = time + 3000; // Every 3 seconds
+        // Wave logic
+        if (!this.isWaveActive) {
+            if (this.waveWaitTimer > 0) {
+                this.waveWaitTimer -= delta;
+            } else {
+                this.startNewWave();
+            }
+        } else {
+            if (this.enemiesSpawnedInWave < this.maxEnemiesPerWave) {
+                if (time > this.nextWaveTime) {
+                    this.spawnHero();
+                    this.nextWaveTime = time + 2000; // 2 seconds between spawns in wave
+                }
+            } else if (this.enemies.length === 0) {
+                this.endWave();
+            }
         }
 
         // Spawn Invasores
@@ -150,14 +197,32 @@ class GameScene extends Phaser.Scene {
         });
     }
 
+    startNewWave() {
+        this.isWaveActive = true;
+        this.enemiesSpawnedInWave = 0;
+        this.events.emit('ui_update');
+    }
+
+    endWave() {
+        this.isWaveActive = false;
+        GameState.wave++;
+        GameState.save();
+        this.waveWaitTimer = 3000; // 3 second pause
+        this.events.emit('ui_update');
+    }
+
     spawnHero() {
+        const hpMultiplier = Math.pow(1.15, GameState.wave - 1);
+        const goldMultiplier = Math.pow(1.10, GameState.wave - 1);
+
         const hero = new Hero(this, PATH_POINTS, {
             speed: 120,
-            hp: 50,
-            gold: 15,
+            hp: Math.round(50 * hpMultiplier),
+            gold: Math.round(15 * goldMultiplier),
             texture: 'hero_knight'
         });
         this.enemies.push(hero);
+        this.enemiesSpawnedInWave++;
     }
 
     spawnInvasor() {

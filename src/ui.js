@@ -26,6 +26,12 @@ export class UIScene extends Phaser.Scene {
             fontStyle: 'bold'
         }).setDepth(101);
 
+        this.waveText = this.add.text(20, 90, `Oleada: ${GameState.wave}`, {
+            fontSize: '28px',
+            fill: '#ecf0f1',
+            fontStyle: 'bold'
+        }).setDepth(101);
+
         // Shop Button
         this.shopButton = this.add.container(360, 1100);
         const btnBg = this.add.graphics();
@@ -34,24 +40,39 @@ export class UIScene extends Phaser.Scene {
         btnBg.lineStyle(2, 0xffffff, 1);
         btnBg.strokeRoundedRect(-150, -30, 300, 60, 10);
 
-        this.shopText = this.add.text(0, 0, 'Comprar Monstruo (50 Oro)', {
+        this.updateShopText = () => {
+            const cost = 50 + (GameState.monstersPurchased * 10);
+            this.shopText.setText(`Invocar Monstruo (${cost} Oro)`);
+        };
+
+        this.shopText = this.add.text(0, 0, '', {
             fontSize: '22px',
             fill: '#ffffff',
             fontStyle: 'bold'
         }).setOrigin(0.5);
+        this.updateShopText();
 
         this.shopButton.add([btnBg, this.shopText]);
         this.shopButton.setInteractive(new Phaser.Geom.Rectangle(-150, -30, 300, 60), Phaser.Geom.Rectangle.Contains);
 
         this.shopButton.on('pointerdown', () => {
-            if (GameState.gold >= 50) {
-                mainGame.isPlacingTower = true;
+            const cost = 50 + (GameState.monstersPurchased * 10);
+            if (GameState.gold >= cost) {
+                GameState.gold -= cost;
+                GameState.monstersPurchased++;
+                GameState.save();
+                mainGame.updateUI();
+
+                const rng = Math.random();
+                const monsterType = rng < 0.7 ? 'slime' : 'red_monster';
+                mainGame.startPlacement(monsterType);
+
                 this.shopText.setText('Selecciona en el mapa...');
                 this.shopText.setFill('#f1c40f');
             } else {
                 this.shopText.setText('¡Falta Oro!');
                 this.time.delayedCall(1000, () => {
-                    this.shopText.setText('Comprar Monstruo (50 Oro)');
+                    this.updateShopText();
                 });
             }
         });
@@ -71,10 +92,12 @@ export class UIScene extends Phaser.Scene {
         mainGame.events.on('ui_update', () => {
             this.goldText.setText(`Oro: ${GameState.gold}`);
             this.soulsText.setText(`Almas: ${GameState.souls}`);
+            this.waveText.setText(`Oleada: ${GameState.wave}`);
+            this.updateShopText();
         });
 
         mainGame.events.on('placement_finished', () => {
-            this.shopText.setText('Comprar Monstruo (50 Oro)');
+            this.updateShopText();
             this.shopText.setFill('#ffffff');
         });
     }

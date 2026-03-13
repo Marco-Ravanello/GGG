@@ -1,7 +1,8 @@
 export const GameState = {
     gold: 200,
     souls: 0,
-    level: 1,
+    wave: 1,
+    monstersPurchased: 0,
     unlockedMonsters: ['slime'],
     inventory: {
         slime: 1,
@@ -14,7 +15,8 @@ export const GameState = {
         const data = {
             gold: this.gold,
             souls: this.souls,
-            level: this.level,
+            wave: this.wave,
+            monstersPurchased: this.monstersPurchased,
             inventory: this.inventory,
             unlockedMonsters: this.unlockedMonsters
         };
@@ -28,7 +30,8 @@ export const GameState = {
             const data = JSON.parse(saved);
             this.gold = data.gold ?? this.gold;
             this.souls = data.souls ?? this.souls;
-            this.level = data.level ?? this.level;
+            this.wave = data.wave ?? this.wave;
+            this.monstersPurchased = data.monstersPurchased ?? this.monstersPurchased;
             this.inventory = data.inventory ?? this.inventory;
             this.unlockedMonsters = data.unlockedMonsters ?? this.unlockedMonsters;
             console.log('Juego cargado');

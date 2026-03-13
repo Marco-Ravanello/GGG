@@ -9,6 +9,7 @@ export class Tower extends Phaser.GameObjects.Container {
         this.lastFired = 0;
 
         this.sprite = scene.add.sprite(0, 0, config.texture);
+        if (config.tint) this.sprite.setTint(config.tint);
         this.add(this.sprite);
 
         // Range circle (visible only during placement or selection)
@@ -42,7 +43,8 @@ export class Tower extends Phaser.GameObjects.Container {
     fire(target) {
         // Simple projectile effect
         const line = this.scene.add.graphics();
-        line.lineStyle(3, 0xffff00, 1);
+        const color = this.type === 'red_monster' ? 0xff0000 : 0xffff00;
+        line.lineStyle(3, color, 1);
         line.lineBetween(this.x, this.y, target.x, target.y);
         this.scene.tweens.add({
             targets: line,
