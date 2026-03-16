@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>La Taberna del Mímico - Versión 3 (Gacha & Oleadas)</title>
+    <title>La Taberna del Mímico - Versión 4 (Tycoon & Tabs)</title>
     <style>
         body { margin: 0; padding: 0; background-color: #1a0f00; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
         #game-container { box-shadow: 0 0 20px rgba(0,0,0,0.8); border: 4px solid #3d2b1f; border-radius: 8px; }
@@ -13,12 +13,46 @@
 <body>
     <div id="game-container"></div>
     <script>
+        // --- GAME STATE ---
         const GameState = {
             gold: 200, souls: 0, wave: 1, monstersPurchased: 0,
-            save() { localStorage.setItem('mimic_tavern_save_v3', JSON.stringify({gold: this.gold, souls: this.souls, wave: this.wave, monstersPurchased: this.monstersPurchased})); },
-            load() { const saved = localStorage.getItem('mimic_tavern_save_v3'); if (saved) { const data = JSON.parse(saved); this.gold = data.gold; this.souls = data.souls; this.wave = data.wave || 1; this.monstersPurchased = data.monstersPurchased || 0; } }
+            passiveGoldRate: 5, camasLevel: 0, afiladorLevel: 0, damageMultiplier: 1.0,
+            lastTimestamp: Date.now(),
+
+            save() {
+                localStorage.setItem('mimic_tavern_save_v4', JSON.stringify({
+                    gold: this.gold, souls: this.souls, wave: this.wave,
+                    monstersPurchased: this.monstersPurchased,
+                    passiveGoldRate: this.passiveGoldRate,
+                    camasLevel: this.camasLevel,
+                    afiladorLevel: this.afiladorLevel,
+                    damageMultiplier: this.damageMultiplier,
+                    lastTimestamp: Date.now()
+                }));
+            },
+            load() {
+                const saved = localStorage.getItem('mimic_tavern_save_v4');
+                let offlineGold = 0;
+                if (saved) {
+                    const data = JSON.parse(saved);
+                    this.gold = data.gold; this.souls = data.souls; this.wave = data.wave || 1;
+                    this.monstersPurchased = data.monstersPurchased || 0;
+                    this.passiveGoldRate = data.passiveGoldRate ?? 5;
+                    this.camasLevel = data.camasLevel ?? 0;
+                    this.afiladorLevel = data.afiladorLevel ?? 0;
+                    this.damageMultiplier = data.damageMultiplier ?? 1.0;
+
+                    if (data.lastTimestamp) {
+                        const seconds = Math.floor((Date.now() - data.lastTimestamp) / 1000);
+                        offlineGold = Math.floor(seconds * (this.passiveGoldRate / 2));
+                        this.gold += offlineGold;
+                    }
+                }
+                return offlineGold;
+            }
         };
 
+        // --- CONFIG ---
         const MAP_CONFIG = { tileWidth: 64, tileHeight: 64, rows: 20, cols: 11, offsetX: 8 };
         const PATH_POINTS = [
             {x: 10, y: 1}, {x: 9, y: 1}, {x: 8, y: 1}, {x: 7, y: 1}, {x: 6, y: 1}, {x: 5, y: 1}, {x: 4, y: 1}, {x: 3, y: 1}, {x: 2, y: 1}, {x: 1, y: 1},
@@ -33,6 +67,7 @@
         ];
         function getWorldPos(col, row) { return { x: MAP_CONFIG.offsetX + col * 64 + 32, y: row * 64 + 32 }; }
 
+        // --- ENTITIES ---
         class Hero extends Phaser.GameObjects.Container {
             constructor(scene, path, hp, loot) {
                 const startPos = getWorldPos(path[0].x, path[0].y);
@@ -70,7 +105,7 @@
                     const color = this.config.type === 'red' ? 0xff0000 : 0xffff00;
                     const line = this.scene.add.graphics(); line.lineStyle(3, color, 1); line.lineBetween(this.x, this.y, target.x, target.y);
                     this.scene.tweens.add({ targets: line, alpha: 0, duration: 200, onComplete: () => line.destroy() });
-                    target.takeDamage(this.config.damage); this.lastFired = time;
+                    target.takeDamage(this.config.damage * GameState.damageMultiplier); this.lastFired = time;
                 }
             }
         }
@@ -84,51 +119,108 @@
             update(delta) { this.x += 200 * (delta / 1000); if (this.x > 770) this.destroy(); }
         }
 
+        // --- UI SCENE ---
         class UIScene extends Phaser.Scene {
-            constructor() { super('UIScene'); }
-            create() {
+            constructor() { super('UIScene'); this.currentTab = 'combat'; }
+            create(data) {
                 const mainGame = this.scene.get('GameScene');
                 this.add.graphics().fillStyle(0x000000, 0.8).fillRect(0, 0, 720, 130).setDepth(100);
                 this.goldText = this.add.text(20, 20, `Oro: ${GameState.gold}`, { fontSize: '32px', fill: '#f1c40f', fontStyle: 'bold' }).setDepth(101);
                 this.soulsText = this.add.text(350, 20, `Almas: ${GameState.souls}`, { fontSize: '32px', fill: '#9b59b6', fontStyle: 'bold' }).setDepth(101);
                 this.waveText = this.add.text(20, 75, `Oleada: ${GameState.wave}`, { fontSize: '28px', fill: '#ecf0f1', fontStyle: 'bold' }).setDepth(101);
 
+                // Combat Tab Elements
+                this.combatUI = this.add.container(0,0);
                 const shopBtn = this.add.container(360, 1100).setInteractive(new Phaser.Geom.Rectangle(-150, -30, 300, 60), Phaser.Geom.Rectangle.Contains);
                 const btnBg = this.add.graphics().fillStyle(0x27ae60, 1).fillRoundedRect(-150, -30, 300, 60, 10).lineStyle(2, 0xffffff, 1).strokeRoundedRect(-150, -30, 300, 60, 10);
                 this.shopTxt = this.add.text(0, 0, '', { fontSize: '22px', fill: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
                 shopBtn.add([btnBg, this.shopTxt]);
                 this.updateShopTxt();
-
                 shopBtn.on('pointerdown', () => {
                     const cost = 50 + (GameState.monstersPurchased * 10);
                     if (GameState.gold >= cost) {
-                        GameState.gold -= cost;
-                        GameState.monstersPurchased++;
-                        GameState.save();
-                        mainGame.events.emit('ui_update');
-
-                        const type = Math.random() < 0.7 ? 'slime' : 'red';
-                        mainGame.startPlacement(type);
+                        GameState.gold -= cost; GameState.monstersPurchased++; GameState.save(); mainGame.events.emit('ui_update');
+                        const type = Math.random() < 0.7 ? 'slime' : 'red'; mainGame.startPlacement(type);
                         this.shopTxt.setText('Selecciona en el mapa...'); this.shopTxt.setFill('#f1c40f');
-                    } else {
-                        this.shopTxt.setText('¡Falta Oro!'); this.time.delayedCall(1000, () => this.updateShopTxt());
-                    }
+                    } else { this.shopTxt.setText('¡Falta Oro!'); this.time.delayedCall(1000, () => this.updateShopTxt()); }
                 });
+                this.combatUI.add(shopBtn);
 
+                // Tavern Tab Elements
+                this.tavernUI = this.add.container(0, 0).setVisible(false);
+                this.tavernUI.add(this.add.graphics().fillStyle(0x2c3e50, 0.95).fillRect(0, 130, 720, 1050));
+                this.tavernUI.add(this.add.text(360, 180, 'MENÚ DE LA TABERNA', { fontSize: '42px', fill: '#ecf0f1', fontStyle: 'bold' }).setOrigin(0.5));
+
+                this.createUpgradeBtn(360, 300, 'beds');
+                this.createUpgradeBtn(360, 420, 'damage');
+
+                // Navigation Tabs
+                this.tabsUI = this.add.container(0, 1180);
+                this.tabsUI.add(this.add.graphics().fillStyle(0x000000, 0.9).fillRect(0, 0, 720, 100));
+                this.tabCombat = this.createTabBtn(180, 50, 'COMBATE', () => this.switchTab('combat'));
+                this.tabTavern = this.createTabBtn(540, 50, 'TABERNA', () => this.switchTab('tavern'));
+                this.tabsUI.add([this.tabCombat, this.tabTavern]);
+                this.updateTabHighlights();
+
+                // Listeners
                 mainGame.events.on('ui_update', () => {
                     this.goldText.setText(`Oro: ${GameState.gold}`);
                     this.soulsText.setText(`Almas: ${GameState.souls}`);
                     this.waveText.setText(`Oleada: ${GameState.wave}`);
-                    this.updateShopTxt();
+                    this.updateShopTxt(); this.updateUpgradeTxt();
                 });
-                mainGame.events.on('placement_finished', () => { this.updateShopTxt(); this.shopTxt.setFill('#ffffff'); });
+                mainGame.events.on('placement_started', () => this.tabsUI.setVisible(false));
+                mainGame.events.on('placement_finished', () => { this.updateShopTxt(); this.shopTxt.setFill('#ffffff'); this.tabsUI.setVisible(true); });
+
+                if (data && data.offlineGold > 0) this.showWelcome(data.offlineGold);
             }
-            updateShopTxt() {
-                const cost = 50 + (GameState.monstersPurchased * 10);
-                this.shopTxt.setText(`Invocar Monstruo (${cost} Oro)`);
+            createTabBtn(x, y, label, cb) {
+                const c = this.add.container(x, y).setInteractive(new Phaser.Geom.Rectangle(-140, -35, 280, 70), Phaser.Geom.Rectangle.Contains);
+                const bg = this.add.graphics().fillStyle(0x34495e, 1).fillRoundedRect(-140, -35, 280, 70, 10);
+                const txt = this.add.text(0, 0, label, { fontSize: '26px', fill: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
+                c.add([bg, txt]); c.on('pointerdown', cb); return c;
+            }
+            updateTabHighlights() {
+                this.tabCombat.getAt(0).clear().fillStyle(this.currentTab === 'combat' ? 0x27ae60 : 0x34495e, 1).fillRoundedRect(-140, -35, 280, 70, 10);
+                this.tabTavern.getAt(0).clear().fillStyle(this.currentTab === 'tavern' ? 0x27ae60 : 0x34495e, 1).fillRoundedRect(-140, -35, 280, 70, 10);
+            }
+            switchTab(tab) {
+                this.currentTab = tab; this.updateTabHighlights();
+                this.combatUI.setVisible(tab === 'combat'); this.tavernUI.setVisible(tab === 'tavern');
+                const mainGame = this.scene.get('GameScene');
+                mainGame.children.each(child => { if (child.type !== 'UIScene') child.setVisible(tab === 'combat'); });
+            }
+            createUpgradeBtn(x, y, type) {
+                const c = this.add.container(x, y).setInteractive(new Phaser.Geom.Rectangle(-250, -40, 500, 80), Phaser.Geom.Rectangle.Contains);
+                const bg = this.add.graphics().fillStyle(type === 'beds' ? 0x8e44ad : 0xc0392b, 1).fillRoundedRect(-250, -40, 500, 80, 10);
+                const txt = this.add.text(0, 0, '', { fontSize: '22px', fill: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
+                c.add([bg, txt]); this.tavernUI.add(c);
+                if (type === 'beds') this.bedsTxt = txt; else this.dmgTxt = txt;
+                c.on('pointerdown', () => {
+                    if (type === 'beds') {
+                        const cost = Math.floor(100 * Math.pow(1.5, GameState.camasLevel));
+                        if (GameState.gold >= cost) { GameState.gold -= cost; GameState.camasLevel++; GameState.passiveGoldRate += 2; GameState.save(); this.scene.get('GameScene').events.emit('ui_update'); }
+                    } else {
+                        const cost = 20 + (GameState.afiladorLevel * 10);
+                        if (GameState.souls >= cost) { GameState.souls -= cost; GameState.afiladorLevel++; GameState.damageMultiplier *= 1.10; GameState.save(); this.scene.get('GameScene').events.emit('ui_update'); }
+                    }
+                });
+                this.updateUpgradeTxt();
+            }
+            updateUpgradeTxt() {
+                if (this.bedsTxt) this.bedsTxt.setText(`Mejorar Camas (Nvl: ${GameState.camasLevel}) | Costo: ${Math.floor(100 * Math.pow(1.5, GameState.camasLevel))} Oro`);
+                if (this.dmgTxt) this.dmgTxt.setText(`Afilador Garras (Nvl: ${GameState.afiladorLevel}) | Costo: ${20 + (GameState.afiladorLevel * 10)} Almas`);
+            }
+            updateShopTxt() { const cost = 50 + (GameState.monstersPurchased * 10); this.shopTxt.setText(`Invocar Monstruo (${cost} Oro)`); }
+            showWelcome(amt) {
+                const w = this.add.container(360, 640).setDepth(200);
+                w.add(this.add.graphics().fillStyle(0x000000, 0.9).fillRoundedRect(-300, -100, 600, 200, 20).lineStyle(4, 0xf1c40f).strokeRoundedRect(-300, -100, 600, 200, 20));
+                w.add(this.add.text(0, 0, `¡Mientras dormías, la taberna\ngeneró ${amt} Oro!`, { fontSize: '32px', fill: '#ffffff', align: 'center', fontStyle: 'bold' }).setOrigin(0.5));
+                this.time.delayedCall(4000, () => w.destroy());
             }
         }
 
+        // --- GAME SCENE ---
         class GameScene extends Phaser.Scene {
             constructor() { super('GameScene'); this.enemies = []; this.towers = []; this.invasors = []; this.nextWaveTime = 0; this.nextInvasorTime = 5000; this.enemiesSpawnedInWave = 0; this.isWaveActive = false; this.waveWaitTimer = 0; }
             preload() {
@@ -139,13 +231,13 @@
                 this.load.image('invasor', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/aqua_ball.png');
             }
             create() {
-                GameState.load();
+                const offlineGold = GameState.load();
                 for (let r = 0; r < 20; r++) for (let c = 0; c < 11; c++) {
                     const pos = getWorldPos(c, r);
                     this.add.image(pos.x, pos.y, 'tile_wood').setDisplaySize(64, 64).setTint(0x442200);
                 }
                 PATH_POINTS.forEach(p => { const pos = getWorldPos(p.x, p.y); this.add.image(pos.x, pos.y, 'tile_path').setDisplaySize(64, 64); });
-                this.scene.launch('UIScene');
+                this.scene.launch('UIScene', { offlineGold });
                 this.events.on('hero_defeated', (g) => { GameState.gold += g; GameState.souls += 1; GameState.save(); this.events.emit('ui_update'); });
                 this.events.on('hero_escaped', (g) => { GameState.gold = Math.max(0, GameState.gold - g); GameState.save(); this.events.emit('ui_update'); });
                 this.input.on('pointerdown', (p) => {
@@ -153,18 +245,17 @@
                     const c = Math.floor((p.x - 8) / 64), r = Math.floor(p.y / 64);
                     if (c<0 || c>=11 || r<0 || r>=20 || PATH_POINTS.some(path => path.x === c && path.y === r)) return;
                     if (this.towers.some(t => Math.floor((t.x - 8) / 64) === c && Math.floor(t.y / 64) === r)) return;
-
-                    const towerConfig = this.pendingMonsterType === 'slime' ? { type: 'slime', damage: 15, range: 150, fireRate: 800 } : { type: 'red', damage: 40, range: 250, fireRate: 1500, tint: 0xff0000 };
-
-                    const pos = getWorldPos(c, r); this.towers.push(new Tower(this, pos.x, pos.y, towerConfig));
+                    const config = this.pendingType === 'slime' ? { type: 'slime', damage: 15, range: 150, fireRate: 800 } : { type: 'red', damage: 40, range: 250, fireRate: 1500, tint: 0xff0000 };
+                    const pos = getWorldPos(c, r); this.towers.push(new Tower(this, pos.x, pos.y, config));
                     this.isPlacingTower = false; if (this.preview) this.preview.destroy();
                     this.events.emit('ui_update'); this.events.emit('placement_finished');
                 });
                 this.input.on('pointermove', (p) => { if (this.isPlacingTower && this.preview) { this.preview.x = p.x; this.preview.y = p.y; } });
             }
             startPlacement(type) {
+                this.events.emit('placement_started');
                 if (this.preview) this.preview.destroy();
-                this.isPlacingTower = true; this.pendingMonsterType = type;
+                this.isPlacingTower = true; this.pendingType = type;
                 this.preview = this.add.sprite(0, 0, 'tower_slime').setAlpha(0.6).setDepth(200);
                 if (type === 'red') this.preview.setTint(0xff0000);
             }
@@ -188,6 +279,12 @@
                 this.invasors = this.invasors.filter(i => { if (i.active) { i.update(delta); return true; } return false; });
                 this.enemies = this.enemies.filter(e => { if (e.active) { e.update(time, delta); return true; } return false; });
                 this.towers.forEach(t => t.update(time, this.enemies));
+
+                if (!this.lastPassiveTime) this.lastPassiveTime = time;
+                if (time - this.lastPassiveTime >= 2000) {
+                    GameState.gold += GameState.passiveGoldRate; this.events.emit('ui_update');
+                    this.lastPassiveTime = time; GameState.save();
+                }
             }
         }
 

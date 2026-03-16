@@ -31,10 +31,10 @@ class GameScene extends Phaser.Scene {
     }
 
     create() {
-        GameState.load();
+        const offlineGold = GameState.load();
         this.drawMap();
 
-        this.scene.launch('UIScene');
+        this.scene.launch('UIScene', { offlineGold });
 
         // Groups
         this.enemyGroup = this.add.group();
@@ -69,6 +69,7 @@ class GameScene extends Phaser.Scene {
     }
 
     startPlacement(type) {
+        this.events.emit('placement_started');
         if (this.placementPreview) this.placementPreview.destroy();
         this.isPlacingTower = true;
         this.pendingMonsterType = type;
@@ -195,6 +196,15 @@ class GameScene extends Phaser.Scene {
         this.towers.forEach(tower => {
             tower.update(time, delta, this.enemies);
         });
+
+        // Passive Gold Generation (Every 2 seconds)
+        if (!this.lastPassiveGoldTime) this.lastPassiveGoldTime = time;
+        if (time - this.lastPassiveGoldTime >= 2000) {
+            GameState.gold += GameState.passiveGoldRate;
+            this.updateUI();
+            this.lastPassiveGoldTime = time;
+            GameState.save();
+        }
     }
 
     startNewWave() {

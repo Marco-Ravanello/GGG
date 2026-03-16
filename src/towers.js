@@ -1,3 +1,5 @@
+import { GameState } from './state.js';
+
 export class Tower extends Phaser.GameObjects.Container {
     constructor(scene, x, y, config) {
         super(scene, x, y);
@@ -53,6 +55,7 @@ export class Tower extends Phaser.GameObjects.Container {
             onComplete: () => line.destroy()
         });
 
-        target.takeDamage(this.damage);
+        const totalDamage = this.damage * GameState.damageMultiplier;
+        target.takeDamage(totalDamage);
     }
 }
