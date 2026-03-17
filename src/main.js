@@ -28,6 +28,11 @@ class GameScene extends Phaser.Scene {
         this.load.image('hero_knight', ASSETS.hero_knight);
         this.load.image('tower_slime', ASSETS.tower_slime);
         this.load.image('invasor', ASSETS.invasor);
+        this.load.image('tavern_bg', ASSETS.tavern_bg);
+        this.load.image('icon_bed', ASSETS.icon_bed);
+        this.load.image('icon_sword', ASSETS.icon_sword);
+        this.load.image('icon_coin', ASSETS.icon_coin);
+        this.load.image('icon_soul', ASSETS.icon_soul);
     }
 
     create() {

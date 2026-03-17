@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>La Taberna del Mímico - Versión 4 (Tycoon & Tabs)</title>
+    <title>La Taberna del Mímico - Prototype V5</title>
     <style>
         body { margin: 0; padding: 0; background-color: #1a0f00; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
         #game-container { box-shadow: 0 0 20px rgba(0,0,0,0.8); border: 4px solid #3d2b1f; border-radius: 8px; }
@@ -20,7 +20,7 @@
             lastTimestamp: Date.now(),
 
             save() {
-                localStorage.setItem('mimic_tavern_save_v4', JSON.stringify({
+                localStorage.setItem('mimic_tavern_save_v5', JSON.stringify({
                     gold: this.gold, souls: this.souls, wave: this.wave,
                     monstersPurchased: this.monstersPurchased,
                     passiveGoldRate: this.passiveGoldRate,
@@ -31,7 +31,7 @@
                 }));
             },
             load() {
-                const saved = localStorage.getItem('mimic_tavern_save_v4');
+                const saved = localStorage.getItem('mimic_tavern_save_v5');
                 let offlineGold = 0;
                 if (saved) {
                     const data = JSON.parse(saved);
@@ -127,7 +127,7 @@
                 this.add.graphics().fillStyle(0x000000, 0.8).fillRect(0, 0, 720, 130).setDepth(100);
                 this.goldText = this.add.text(20, 20, `Oro: ${GameState.gold}`, { fontSize: '32px', fill: '#f1c40f', fontStyle: 'bold' }).setDepth(101);
                 this.soulsText = this.add.text(350, 20, `Almas: ${GameState.souls}`, { fontSize: '32px', fill: '#9b59b6', fontStyle: 'bold' }).setDepth(101);
-                this.waveText = this.add.text(20, 75, `Oleada: ${GameState.wave}`, { fontSize: '28px', fill: '#ecf0f1', fontStyle: 'bold' }).setDepth(101);
+                this.waveText = this.add.text(20, 80, `Oleada: ${GameState.wave}`, { fontSize: '28px', fill: '#ecf0f1', fontStyle: 'bold' }).setDepth(101);
 
                 // Combat Tab Elements
                 this.combatUI = this.add.container(0,0);
@@ -148,11 +148,16 @@
 
                 // Tavern Tab Elements
                 this.tavernUI = this.add.container(0, 0).setVisible(false);
-                this.tavernUI.add(this.add.graphics().fillStyle(0x2c3e50, 0.95).fillRect(0, 130, 720, 1050));
-                this.tavernUI.add(this.add.text(360, 180, 'MENÚ DE LA TABERNA', { fontSize: '42px', fill: '#ecf0f1', fontStyle: 'bold' }).setOrigin(0.5));
+                const tavernBg = this.add.image(360, 640, 'tavern_bg').setDisplaySize(720, 1280).setTint(0x664422).setInteractive();
+                this.tavernUI.add(tavernBg);
+                this.tavernUI.add(this.add.text(360, 180, 'MENÚ DE LA TABERNA', { fontSize: '42px', fill: '#3e2723', fontStyle: 'bold', stroke: '#ffffff', strokeThickness: 2 }).setOrigin(0.5));
 
-                this.createUpgradeBtn(360, 300, 'beds');
-                this.createUpgradeBtn(360, 420, 'damage');
+                this.statusText = this.add.text(360, 250, '', { fontSize: '24px', fill: '#f1c40f', fontStyle: 'bold', stroke: '#3e2723', strokeThickness: 4 }).setOrigin(0.5);
+                this.tavernUI.add(this.statusText);
+
+                this.bedCard = this.createUpgradeCard(360, 400, { title: 'Mejorar Camas', icon: 'icon_bed', currency: 'icon_coin', type: 'beds' });
+                this.dmgCard = this.createUpgradeCard(360, 550, { title: 'Afilador Garras', icon: 'icon_sword', currency: 'icon_soul', type: 'damage' });
+                this.tavernUI.add([this.bedCard.c, this.dmgCard.c]);
 
                 // Navigation Tabs
                 this.tabsUI = this.add.container(0, 1180);
@@ -173,6 +178,7 @@
                 mainGame.events.on('placement_finished', () => { this.updateShopTxt(); this.shopTxt.setFill('#ffffff'); this.tabsUI.setVisible(true); });
 
                 if (data && data.offlineGold > 0) this.showWelcome(data.offlineGold);
+                this.updateUpgradeTxt();
             }
             createTabBtn(x, y, label, cb) {
                 const c = this.add.container(x, y).setInteractive(new Phaser.Geom.Rectangle(-140, -35, 280, 70), Phaser.Geom.Rectangle.Contains);
@@ -190,26 +196,43 @@
                 const mainGame = this.scene.get('GameScene');
                 mainGame.children.each(child => { if (child.type !== 'UIScene') child.setVisible(tab === 'combat'); });
             }
-            createUpgradeBtn(x, y, type) {
-                const c = this.add.container(x, y).setInteractive(new Phaser.Geom.Rectangle(-250, -40, 500, 80), Phaser.Geom.Rectangle.Contains);
-                const bg = this.add.graphics().fillStyle(type === 'beds' ? 0x8e44ad : 0xc0392b, 1).fillRoundedRect(-250, -40, 500, 80, 10);
-                const txt = this.add.text(0, 0, '', { fontSize: '22px', fill: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
-                c.add([bg, txt]); this.tavernUI.add(c);
-                if (type === 'beds') this.bedsTxt = txt; else this.dmgTxt = txt;
-                c.on('pointerdown', () => {
-                    if (type === 'beds') {
-                        const cost = Math.floor(100 * Math.pow(1.5, GameState.camasLevel));
-                        if (GameState.gold >= cost) { GameState.gold -= cost; GameState.camasLevel++; GameState.passiveGoldRate += 2; GameState.save(); this.scene.get('GameScene').events.emit('ui_update'); }
+            createUpgradeCard(x, y, config) {
+                const c = this.add.container(x, y);
+                const bg = this.add.graphics().fillStyle(0xfdf5e6, 0.9).lineStyle(4, 0x3e2723).fillRoundedRect(-320, -60, 640, 120, 10).strokeRoundedRect(-320, -60, 640, 120, 10);
+                c.add(bg);
+                c.add(this.add.image(-260, 0, config.icon).setDisplaySize(80, 80));
+                const title = this.add.text(-200, -35, config.title, { fontSize: '26px', fill: '#3e2723', fontStyle: 'bold' });
+                const lvl = this.add.text(-200, 0, '', { fontSize: '20px', fill: '#5d4037' });
+                const eff = this.add.text(-200, 25, '', { fontSize: '18px', fill: '#795548', fontStyle: 'italic' });
+                c.add([title, lvl, eff]);
+                const buy = this.add.container(220, 0).setInteractive(new Phaser.Geom.Rectangle(-70, -35, 140, 70), Phaser.Geom.Rectangle.Contains);
+                buy.add(this.add.graphics().fillStyle(0xd4af37).lineStyle(2, 0x3e2723).fillRoundedRect(-70, -35, 140, 70, 8).strokeRoundedRect(-70, -35, 140, 70, 8));
+                const cost = this.add.text(-20, 0, '', { fontSize: '22px', fill: '#3e2723', fontStyle: 'bold' }).setOrigin(0.5);
+                buy.add([cost, this.add.image(35, 0, config.currency).setDisplaySize(30, 30)]);
+                c.add(buy);
+                buy.on('pointerdown', () => {
+                    if (config.type === 'beds') {
+                        const costAmt = Math.floor(100 * Math.pow(1.5, GameState.camasLevel));
+                        if (GameState.gold >= costAmt) { GameState.gold -= costAmt; GameState.camasLevel++; GameState.passiveGoldRate += 2; GameState.save(); this.scene.get('GameScene').events.emit('ui_update'); }
                     } else {
-                        const cost = 20 + (GameState.afiladorLevel * 10);
-                        if (GameState.souls >= cost) { GameState.souls -= cost; GameState.afiladorLevel++; GameState.damageMultiplier *= 1.10; GameState.save(); this.scene.get('GameScene').events.emit('ui_update'); }
+                        const costAmt = 20 + (GameState.afiladorLevel * 10);
+                        if (GameState.souls >= costAmt) { GameState.souls -= costAmt; GameState.afiladorLevel++; GameState.damageMultiplier *= 1.10; GameState.save(); this.scene.get('GameScene').events.emit('ui_update'); }
                     }
                 });
-                this.updateUpgradeTxt();
+                return { c, lvl, eff, cost };
             }
             updateUpgradeTxt() {
-                if (this.bedsTxt) this.bedsTxt.setText(`Mejorar Camas (Nvl: ${GameState.camasLevel}) | Costo: ${Math.floor(100 * Math.pow(1.5, GameState.camasLevel))} Oro`);
-                if (this.dmgTxt) this.dmgTxt.setText(`Afilador Garras (Nvl: ${GameState.afiladorLevel}) | Costo: ${20 + (GameState.afiladorLevel * 10)} Almas`);
+                if (this.statusText) this.statusText.setText(`Generación actual: ${GameState.passiveGoldRate} Oro / 2 seg`);
+                if (this.bedCard) {
+                    this.bedCard.lvl.setText(`Nivel: ${GameState.camasLevel}`);
+                    this.bedCard.eff.setText(`+2 Oro / 2 seg`);
+                    this.bedCard.cost.setText(Math.floor(100 * Math.pow(1.5, GameState.camasLevel)));
+                }
+                if (this.dmgCard) {
+                    this.dmgCard.lvl.setText(`Nivel: ${GameState.afiladorLevel}`);
+                    this.dmgCard.eff.setText(`+10% Daño global`);
+                    this.dmgCard.cost.setText(20 + (GameState.afiladorLevel * 10));
+                }
             }
             updateShopTxt() { const cost = 50 + (GameState.monstersPurchased * 10); this.shopTxt.setText(`Invocar Monstruo (${cost} Oro)`); }
             showWelcome(amt) {
@@ -229,6 +252,11 @@
                 this.load.image('hero_knight', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/phaser-dude.png');
                 this.load.image('tower_slime', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/slime.png');
                 this.load.image('invasor', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/aqua_ball.png');
+                this.load.image('tavern_bg', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/pics/backscroll.png');
+                this.load.image('icon_bed', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/block-slime.png');
+                this.load.image('icon_sword', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/blade.png');
+                this.load.image('icon_coin', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/apple.png');
+                this.load.image('icon_soul', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/aqua_ball.png');
             }
             create() {
                 const offlineGold = GameState.load();
