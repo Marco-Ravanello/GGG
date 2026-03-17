@@ -53,10 +53,27 @@ class GameScene extends Phaser.Scene {
             this.updateUI();
         });
 
-        this.events.on('hero_escaped', (gold) => {
-            GameState.gold = Math.max(0, GameState.gold - gold);
+        this.events.on('boss_defeated', (data) => {
+            GameState.souls += data.souls;
             GameState.save();
             this.updateUI();
+            this.showFloatingText(data.x, data.y, `+${data.souls} ALMAS`, '#9b59b6');
+        });
+
+        this.events.on('hero_escaped', () => {
+            const loss = Math.floor(GameState.gold * 0.05);
+            GameState.gold = Math.max(0, GameState.gold - loss);
+            GameState.save();
+            this.updateUI();
+            this.showFloatingText(360, 100, `¡ROBADO! -${loss} Oro`, '#ff0000');
+        });
+
+        this.events.on('boss_escaped', () => {
+            // Reset current wave
+            this.enemiesSpawnedInWave = 0;
+            this.isWaveActive = false;
+            this.waveWaitTimer = 2000;
+            this.showFloatingText(360, 640, "EL JEFE ESCAPÓ\nREINICIANDO OLEADA", '#ff0000');
         });
 
         // Input: Place tower on click (Draft)
@@ -150,8 +167,25 @@ class GameScene extends Phaser.Scene {
     }
 
     updateUI() {
-        // To be implemented in next step, but called here for consistency
         this.events.emit('ui_update');
+    }
+
+    showFloatingText(x, y, message, color) {
+        const txt = this.add.text(x, y, message, {
+            fontSize: '32px',
+            fill: color,
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 4
+        }).setOrigin(0.5).setDepth(300);
+
+        this.tweens.add({
+            targets: txt,
+            y: y - 100,
+            alpha: 0,
+            duration: 2000,
+            onComplete: () => txt.destroy()
+        });
     }
 
     update(time, delta) {
@@ -163,10 +197,13 @@ class GameScene extends Phaser.Scene {
                 this.startNewWave();
             }
         } else {
-            if (this.enemiesSpawnedInWave < this.maxEnemiesPerWave) {
+            const isBossWave = GameState.wave % 10 === 0;
+            const maxEnemies = isBossWave ? 1 : 10;
+
+            if (this.enemiesSpawnedInWave < maxEnemies) {
                 if (time > this.nextWaveTime) {
                     this.spawnHero();
-                    this.nextWaveTime = time + 2000; // 2 seconds between spawns in wave
+                    this.nextWaveTime = time + 2000;
                 }
             } else if (this.enemies.length === 0) {
                 this.endWave();
@@ -229,13 +266,22 @@ class GameScene extends Phaser.Scene {
     spawnHero() {
         const hpMultiplier = Math.pow(1.15, GameState.wave - 1);
         const goldMultiplier = Math.pow(1.10, GameState.wave - 1);
+        const isBossWave = GameState.wave % 10 === 0;
 
-        const hero = new Hero(this, PATH_POINTS, {
+        const config = isBossWave ? {
+            speed: 60,
+            hp: Math.round(50 * hpMultiplier) * 5,
+            souls: 50,
+            isBoss: true,
+            texture: 'hero_knight'
+        } : {
             speed: 120,
             hp: Math.round(50 * hpMultiplier),
             gold: Math.round(15 * goldMultiplier),
             texture: 'hero_knight'
-        });
+        };
+
+        const hero = new Hero(this, PATH_POINTS, config);
         this.enemies.push(hero);
         this.enemiesSpawnedInWave++;
     }

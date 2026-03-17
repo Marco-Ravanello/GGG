@@ -12,8 +12,14 @@ export class Hero extends Phaser.GameObjects.Container {
         this.hp = config.hp || 100;
         this.maxHp = this.hp;
         this.gold = config.gold || 10;
+        this.souls = config.souls || 0;
+        this.isBoss = config.isBoss || false;
 
         this.sprite = scene.add.sprite(0, 0, config.texture || 'hero_knight');
+        if (this.isBoss) {
+            this.sprite.setScale(1.5);
+            this.sprite.setTint(0xffaaaa); // Slight red tint for bosses
+        }
         this.add(this.sprite);
 
         // Health bar
@@ -36,19 +42,37 @@ export class Hero extends Phaser.GameObjects.Container {
     takeDamage(amount) {
         this.hp -= amount;
         this.updateHpBar();
+
+        // Flash effect
+        this.sprite.setTint(0xffffff);
+        this.scene.time.delayedCall(50, () => {
+            if (this.active) {
+                if (this.isBoss) this.sprite.setTint(0xffaaaa);
+                else this.sprite.clearTint();
+            }
+        });
+
         if (this.hp <= 0) {
             this.die();
         }
     }
 
     die() {
-        this.scene.events.emit('hero_defeated', this.gold);
+        if (this.isBoss) {
+            this.scene.events.emit('boss_defeated', { souls: this.souls, x: this.x, y: this.y });
+        } else {
+            this.scene.events.emit('hero_defeated', this.gold);
+        }
         this.destroy();
     }
 
     update(time, delta) {
         if (this.pathIndex >= this.path.length - 1) {
-            this.scene.events.emit('hero_escaped', this.gold);
+            if (this.isBoss) {
+                this.scene.events.emit('boss_escaped');
+            } else {
+                this.scene.events.emit('hero_escaped');
+            }
             this.destroy();
             return;
         }
