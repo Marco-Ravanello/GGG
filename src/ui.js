@@ -60,6 +60,10 @@ export class UIScene extends Phaser.Scene {
         this.shopButton.setInteractive(new Phaser.Geom.Rectangle(-150, -30, 300, 60), Phaser.Geom.Rectangle.Contains);
 
         this.shopButton.on('pointerdown', () => {
+            if (this.selectedMonster) {
+                mainGame.sellSelectedMonster();
+                return;
+            }
             const cost = 50 + (GameState.monstersPurchased * 10);
             if (GameState.gold >= cost) {
                 GameState.gold -= cost;
@@ -151,6 +155,34 @@ export class UIScene extends Phaser.Scene {
             this.updateShopText();
             this.shopText.setFill('#ffffff');
             this.tabsContainer.setVisible(true);
+        });
+
+        mainGame.events.on('monster_selected', (monster) => {
+            this.selectedMonster = monster;
+            const cost = 50 + ((GameState.monstersPurchased - 1) * 10);
+            const sellValue = Math.floor(cost * 0.5);
+            this.shopText.setText(`Vender (+${sellValue} Oro)`);
+            this.shopText.setFill('#ffffff');
+            btnBg.clear();
+            btnBg.fillStyle(0xc0392b, 1);
+            btnBg.fillRoundedRect(-150, -30, 300, 60, 10);
+            btnBg.lineStyle(2, 0xffffff, 1);
+            btnBg.strokeRoundedRect(-150, -30, 300, 60, 10);
+        });
+
+        mainGame.events.on('monster_deselected', () => {
+            this.selectedMonster = null;
+            this.updateShopText();
+            this.shopText.setFill('#ffffff');
+            btnBg.clear();
+            btnBg.fillStyle(0x27ae60, 1);
+            btnBg.fillRoundedRect(-150, -30, 300, 60, 10);
+            btnBg.lineStyle(2, 0xffffff, 1);
+            btnBg.strokeRoundedRect(-150, -30, 300, 60, 10);
+        });
+
+        mainGame.events.on('invasor_clicked', (invasor) => {
+            this.showInvasorModal(invasor);
         });
 
         // Offline Gold Message
@@ -330,6 +362,93 @@ export class UIScene extends Phaser.Scene {
         this.dmgCard.levelText.setText(`Nivel: ${GameState.afiladorLevel}`);
         this.dmgCard.effectText.setText(`+10% Daño global`);
         this.dmgCard.costText.setText(`${dmgCost}`);
+    }
+
+    showInvasorModal(invasor) {
+        const mainGame = this.scene.get('GameScene');
+        mainGame.pauseGame();
+
+        const modal = this.add.container(360, 640).setDepth(1000);
+
+        const overlay = this.add.graphics();
+        overlay.fillStyle(0x000000, 0.7);
+        overlay.fillRect(-360, -640, 720, 1280);
+        overlay.setInteractive(new Phaser.Geom.Rectangle(-360, -640, 720, 1280), Phaser.Geom.Rectangle.Contains);
+
+        const bg = this.add.graphics();
+        bg.fillStyle(0x3e2723, 1);
+        bg.lineStyle(4, 0xd4af37, 1);
+        bg.fillRoundedRect(-250, -200, 500, 400, 20);
+        bg.strokeRoundedRect(-250, -200, 500, 400, 20);
+
+        const title = this.add.text(0, -140, '¡TRATO DEL INVASOR!', {
+            fontSize: '32px',
+            fill: '#f1c40f',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        const desc = this.add.text(0, -40, '¿Quieres ver una oferta\na cambio de 30 Almas?', {
+            fontSize: '24px',
+            fill: '#ffffff',
+            align: 'center'
+        }).setOrigin(0.5);
+
+        // Buttons
+        const acceptBtn = this.createModalButton(0, 60, 'ACEPTAR', 0x27ae60, () => {
+            this.simulateAd(() => {
+                GameState.souls += 30;
+                GameState.save();
+                mainGame.updateUI();
+                modal.destroy();
+                mainGame.resumeGame();
+                invasor.destroy();
+            });
+        });
+
+        const rejectBtn = this.createModalButton(0, 140, 'RECHAZAR', 0xc0392b, () => {
+            modal.destroy();
+            mainGame.resumeGame();
+        });
+
+        modal.add([overlay, bg, title, desc, acceptBtn, rejectBtn]);
+    }
+
+    createModalButton(x, y, label, color, callback) {
+        const btn = this.add.container(x, y);
+        const bg = this.add.graphics();
+        bg.fillStyle(color, 1);
+        bg.fillRoundedRect(-100, -30, 200, 60, 10);
+
+        const txt = this.add.text(0, 0, label, {
+            fontSize: '24px',
+            fill: '#ffffff',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        btn.add([bg, txt]);
+        btn.setInteractive(new Phaser.Geom.Rectangle(-100, -30, 200, 60), Phaser.Geom.Rectangle.Contains);
+        btn.on('pointerdown', callback);
+        return btn;
+    }
+
+    simulateAd(onComplete) {
+        const adModal = this.add.container(360, 640).setDepth(1100);
+        const bg = this.add.graphics();
+        bg.fillStyle(0x000000, 1);
+        bg.fillRect(-360, -640, 720, 1280);
+
+        const txt = this.add.text(0, 0, 'VIENDO ANUNCIO...\n(Simulación 2s)', {
+            fontSize: '32px',
+            fill: '#ffffff',
+            align: 'center'
+        }).setOrigin(0.5);
+
+        adModal.add([bg, txt]);
+
+        this.time.delayedCall(2000, () => {
+            adModal.destroy();
+            onComplete();
+        });
     }
 
     showWelcomeMessage(amount) {

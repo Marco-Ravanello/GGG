@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>La Taberna del Mímico - Prototype V6 (Bosses & Penalties)</title>
+    <title>La Taberna del Mímico - Prototype V7 (Management & Invasor)</title>
     <style>
         body { margin: 0; padding: 0; background-color: #1a0f00; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
         #game-container { box-shadow: 0 0 20px rgba(0,0,0,0.8); border: 4px solid #3d2b1f; border-radius: 8px; }
@@ -20,7 +20,7 @@
             lastTimestamp: Date.now(),
 
             save() {
-                localStorage.setItem('mimic_tavern_save_v6', JSON.stringify({
+                localStorage.setItem('mimic_tavern_save_v7', JSON.stringify({
                     gold: this.gold, souls: this.souls, wave: this.wave,
                     monstersPurchased: this.monstersPurchased,
                     passiveGoldRate: this.passiveGoldRate,
@@ -31,7 +31,7 @@
                 }));
             },
             load() {
-                const saved = localStorage.getItem('mimic_tavern_save_v6');
+                const saved = localStorage.getItem('mimic_tavern_save_v7');
                 let offlineGold = 0;
                 if (saved) {
                     const data = JSON.parse(saved);
@@ -99,7 +99,6 @@
                 this.hp -= amount;
                 this.updateHpBar();
 
-                // Damage Flash
                 this.sprite.setTint(0xffffff);
                 this.scene.time.delayedCall(50, () => {
                     if (this.active) {
@@ -118,14 +117,11 @@
                 }
             }
             update(time, delta) {
+                if (this.scene.isGamePaused) return;
                 if (this.pathIndex >= this.path.length - 1) {
-                    if (this.isBoss) {
-                        this.scene.events.emit('boss_escaped');
-                    } else {
-                        this.scene.events.emit('hero_escaped');
-                    }
-                    this.destroy();
-                    return;
+                    if (this.isBoss) this.scene.events.emit('boss_escaped');
+                    else this.scene.events.emit('hero_escaped');
+                    this.destroy(); return;
                 }
                 const target = getWorldPos(this.path[this.pathIndex + 1].x, this.path[this.pathIndex + 1].y);
                 const distance = Phaser.Math.Distance.Between(this.x, this.y, target.x, target.y);
@@ -142,7 +138,20 @@
                 this.sprite = scene.add.sprite(0, 0, 'tower_slime');
                 if (config.tint) this.sprite.setTint(config.tint);
                 this.add(this.sprite);
+
+                this.rangeCircle = scene.add.graphics();
+                this.rangeCircle.lineStyle(2, 0xffffff, 0.3);
+                this.rangeCircle.strokeCircle(0, 0, config.range);
+                this.add(this.rangeCircle);
+                this.rangeCircle.setVisible(false);
+
+                this.sprite.setInteractive();
+                this.sprite.on('pointerdown', (p) => { p.stopPropagation(); this.scene.selectMonster(this); });
                 scene.add.existing(this);
+            }
+            setSelected(selected) {
+                this.rangeCircle.setVisible(selected);
+                this.sprite.setAlpha(selected ? 0.8 : 1.0);
             }
             update(time, enemies) {
                 if (time < this.lastFired + this.config.fireRate) return;
@@ -160,9 +169,13 @@
             constructor(scene) {
                 const startY = Phaser.Math.Between(200, 1000);
                 super(scene, -50, startY, 'invasor'); this.scene = scene; scene.add.existing(this); this.setInteractive();
-                this.on('pointerdown', () => { GameState.souls += 5; GameState.save(); scene.events.emit('ui_update'); this.destroy(); });
+                this.floatTween = scene.tweens.add({ targets: this, y: startY + 50, duration: 1000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+                this.on('pointerdown', () => scene.events.emit('invasor_clicked', this));
             }
-            update(delta) { this.x += 200 * (delta / 1000); if (this.x > 770) this.destroy(); }
+            update(delta) {
+                if (this.scene.isGamePaused) return;
+                this.x += 200 * (delta / 1000); if (this.x > 770) this.destroy();
+            }
         }
 
         // --- UI SCENE ---
@@ -175,7 +188,6 @@
                 this.soulsText = this.add.text(350, 20, `Almas: ${GameState.souls}`, { fontSize: '32px', fill: '#9b59b6', fontStyle: 'bold' }).setDepth(101);
                 this.waveText = this.add.text(20, 80, `Oleada: ${GameState.wave}`, { fontSize: '28px', fill: '#ecf0f1', fontStyle: 'bold' }).setDepth(101);
 
-                // Combat Tab Elements
                 this.combatUI = this.add.container(0,0);
                 const shopBtn = this.add.container(360, 1100).setInteractive(new Phaser.Geom.Rectangle(-150, -30, 300, 60), Phaser.Geom.Rectangle.Contains);
                 const btnBg = this.add.graphics().fillStyle(0x27ae60, 1).fillRoundedRect(-150, -30, 300, 60, 10).lineStyle(2, 0xffffff, 1).strokeRoundedRect(-150, -30, 300, 60, 10);
@@ -183,6 +195,7 @@
                 shopBtn.add([btnBg, this.shopTxt]);
                 this.updateShopTxt();
                 shopBtn.on('pointerdown', () => {
+                    if (this.selectedMonster) { mainGame.sellSelectedMonster(); return; }
                     const cost = 50 + (GameState.monstersPurchased * 10);
                     if (GameState.gold >= cost) {
                         GameState.gold -= cost; GameState.monstersPurchased++; GameState.save(); mainGame.events.emit('ui_update');
@@ -192,20 +205,16 @@
                 });
                 this.combatUI.add(shopBtn);
 
-                // Tavern Tab Elements
                 this.tavernUI = this.add.container(0, 0).setVisible(false);
                 const tavernBg = this.add.image(360, 640, 'tavern_bg').setDisplaySize(720, 1280).setTint(0x664422).setInteractive();
                 this.tavernUI.add(tavernBg);
                 this.tavernUI.add(this.add.text(360, 180, 'MENÚ DE LA TABERNA', { fontSize: '42px', fill: '#3e2723', fontStyle: 'bold', stroke: '#ffffff', strokeThickness: 2 }).setOrigin(0.5));
-
                 this.statusText = this.add.text(360, 250, '', { fontSize: '24px', fill: '#f1c40f', fontStyle: 'bold', stroke: '#3e2723', strokeThickness: 4 }).setOrigin(0.5);
                 this.tavernUI.add(this.statusText);
-
                 this.bedCard = this.createUpgradeCard(360, 400, { title: 'Mejorar Camas', icon: 'icon_bed', currency: 'icon_coin', type: 'beds' });
                 this.dmgCard = this.createUpgradeCard(360, 550, { title: 'Afilador Garras', icon: 'icon_sword', currency: 'icon_soul', type: 'damage' });
                 this.tavernUI.add([this.bedCard.c, this.dmgCard.c]);
 
-                // Navigation Tabs
                 this.tabsUI = this.add.container(0, 1180);
                 this.tabsUI.add(this.add.graphics().fillStyle(0x000000, 0.9).fillRect(0, 0, 720, 100));
                 this.tabCombat = this.createTabBtn(180, 50, 'COMBATE', () => this.switchTab('combat'));
@@ -213,15 +222,24 @@
                 this.tabsUI.add([this.tabCombat, this.tabTavern]);
                 this.updateTabHighlights();
 
-                // Listeners
                 mainGame.events.on('ui_update', () => {
-                    this.goldText.setText(`Oro: ${GameState.gold}`);
-                    this.soulsText.setText(`Almas: ${GameState.souls}`);
-                    this.waveText.setText(`Oleada: ${GameState.wave}`);
+                    this.goldText.setText(`Oro: ${GameState.gold}`); this.soulsText.setText(`Almas: ${GameState.souls}`); this.waveText.setText(`Oleada: ${GameState.wave}`);
                     this.updateShopTxt(); this.updateUpgradeTxt();
                 });
                 mainGame.events.on('placement_started', () => this.tabsUI.setVisible(false));
                 mainGame.events.on('placement_finished', () => { this.updateShopTxt(); this.shopTxt.setFill('#ffffff'); this.tabsUI.setVisible(true); });
+
+                mainGame.events.on('monster_selected', (m) => {
+                    this.selectedMonster = m;
+                    const sellVal = Math.floor((50 + (GameState.monstersPurchased - 1) * 10) * 0.5);
+                    this.shopTxt.setText(`Vender (+${sellVal} Oro)`);
+                    btnBg.clear().fillStyle(0xc0392b, 1).fillRoundedRect(-150, -30, 300, 60, 10).lineStyle(2, 0xffffff, 1).strokeRoundedRect(-150, -30, 300, 60, 10);
+                });
+                mainGame.events.on('monster_deselected', () => {
+                    this.selectedMonster = null; this.updateShopTxt();
+                    btnBg.clear().fillStyle(0x27ae60, 1).fillRoundedRect(-150, -30, 300, 60, 10).lineStyle(2, 0xffffff, 1).strokeRoundedRect(-150, -30, 300, 60, 10);
+                });
+                mainGame.events.on('invasor_clicked', (inv) => this.showInvasorModal(inv));
 
                 if (data && data.offlineGold > 0) this.showWelcome(data.offlineGold);
                 this.updateUpgradeTxt();
@@ -244,13 +262,11 @@
             }
             createUpgradeCard(x, y, config) {
                 const c = this.add.container(x, y);
-                const bg = this.add.graphics().fillStyle(0xfdf5e6, 0.9).lineStyle(4, 0x3e2723).fillRoundedRect(-320, -60, 640, 120, 10).strokeRoundedRect(-320, -60, 640, 120, 10);
-                c.add(bg);
+                c.add(this.add.graphics().fillStyle(0xfdf5e6, 0.9).lineStyle(4, 0x3e2723).fillRoundedRect(-320, -60, 640, 120, 10).strokeRoundedRect(-320, -60, 640, 120, 10));
                 c.add(this.add.image(-260, 0, config.icon).setDisplaySize(80, 80));
-                const title = this.add.text(-200, -35, config.title, { fontSize: '26px', fill: '#3e2723', fontStyle: 'bold' });
                 const lvl = this.add.text(-200, 0, '', { fontSize: '20px', fill: '#5d4037' });
                 const eff = this.add.text(-200, 25, '', { fontSize: '18px', fill: '#795548', fontStyle: 'italic' });
-                c.add([title, lvl, eff]);
+                c.add([this.add.text(-200, -35, config.title, { fontSize: '26px', fill: '#3e2723', fontStyle: 'bold' }), lvl, eff]);
                 const buy = this.add.container(220, 0).setInteractive(new Phaser.Geom.Rectangle(-70, -35, 140, 70), Phaser.Geom.Rectangle.Contains);
                 buy.add(this.add.graphics().fillStyle(0xd4af37).lineStyle(2, 0x3e2723).fillRoundedRect(-70, -35, 140, 70, 8).strokeRoundedRect(-70, -35, 140, 70, 8));
                 const cost = this.add.text(-20, 0, '', { fontSize: '22px', fill: '#3e2723', fontStyle: 'bold' }).setOrigin(0.5);
@@ -269,18 +285,28 @@
             }
             updateUpgradeTxt() {
                 if (this.statusText) this.statusText.setText(`Generación actual: ${GameState.passiveGoldRate} Oro / 2 seg`);
-                if (this.bedCard) {
-                    this.bedCard.lvl.setText(`Nivel: ${GameState.camasLevel}`);
-                    this.bedCard.eff.setText(`+2 Oro / 2 seg`);
-                    this.bedCard.cost.setText(Math.floor(100 * Math.pow(1.5, GameState.camasLevel)));
-                }
-                if (this.dmgCard) {
-                    this.dmgCard.lvl.setText(`Nivel: ${GameState.afiladorLevel}`);
-                    this.dmgCard.eff.setText(`+10% Daño global`);
-                    this.dmgCard.cost.setText(20 + (GameState.afiladorLevel * 10));
-                }
+                if (this.bedCard) { this.bedCard.lvl.setText(`Nivel: ${GameState.camasLevel}`); this.bedCard.eff.setText(`+2 Oro / 2 seg`); this.bedCard.cost.setText(Math.floor(100 * Math.pow(1.5, GameState.camasLevel))); }
+                if (this.dmgCard) { this.dmgCard.lvl.setText(`Nivel: ${GameState.afiladorLevel}`); this.dmgCard.eff.setText(`+10% Daño global`); this.dmgCard.cost.setText(20 + (GameState.afiladorLevel * 10)); }
             }
             updateShopTxt() { const cost = 50 + (GameState.monstersPurchased * 10); this.shopTxt.setText(`Invocar Monstruo (${cost} Oro)`); }
+            showInvasorModal(inv) {
+                const mainGame = this.scene.get('GameScene'); mainGame.pauseGame();
+                const modal = this.add.container(360, 640).setDepth(1000);
+                const overlay = this.add.graphics().fillStyle(0x000000, 0.7).fillRect(-360, -640, 720, 1280).setInteractive(new Phaser.Geom.Rectangle(-360, -640, 720, 1280), Phaser.Geom.Rectangle.Contains);
+                const bg = this.add.graphics().fillStyle(0x3e2723, 1).lineStyle(4, 0xd4af37, 1).fillRoundedRect(-250, -200, 500, 400, 20).strokeRoundedRect(-250, -200, 500, 400, 20);
+                const accept = this.createModalBtn(0, 60, 'ACEPTAR', 0x27ae60, () => {
+                    const ad = this.add.container(360, 640).setDepth(1100);
+                    ad.add([this.add.graphics().fillStyle(0x000000, 1).fillRect(-360, -640, 720, 1280), this.add.text(0, 0, 'VIENDO ANUNCIO...\n(Simulación 2s)', { fontSize: '32px', fill: '#ffffff', align: 'center' }).setOrigin(0.5)]);
+                    this.time.delayedCall(2000, () => { ad.destroy(); GameState.souls += 30; GameState.save(); mainGame.events.emit('ui_update'); modal.destroy(); mainGame.resumeGame(); inv.destroy(); });
+                });
+                const reject = this.createModalBtn(0, 140, 'RECHAZAR', 0xc0392b, () => { modal.destroy(); mainGame.resumeGame(); });
+                modal.add([overlay, bg, this.add.text(0, -140, '¡TRATO DEL INVASOR!', { fontSize: '32px', fill: '#f1c40f', fontStyle: 'bold' }).setOrigin(0.5), this.add.text(0, -40, '¿Quieres ver una oferta\na cambio de 30 Almas?', { fontSize: '24px', fill: '#ffffff', align: 'center' }).setOrigin(0.5), accept, reject]);
+            }
+            createModalBtn(x, y, label, color, cb) {
+                const c = this.add.container(x, y).setInteractive(new Phaser.Geom.Rectangle(-100, -30, 200, 60), Phaser.Geom.Rectangle.Contains);
+                c.add([this.add.graphics().fillStyle(color, 1).fillRoundedRect(-100, -30, 200, 60, 10), this.add.text(0, 0, label, { fontSize: '24px', fill: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5)]);
+                c.on('pointerdown', cb); return c;
+            }
             showWelcome(amt) {
                 const w = this.add.container(360, 640).setDepth(200);
                 w.add(this.add.graphics().fillStyle(0x000000, 0.9).fillRoundedRect(-300, -100, 600, 200, 20).lineStyle(4, 0xf1c40f).strokeRoundedRect(-300, -100, 600, 200, 20));
@@ -297,7 +323,7 @@
                 this.load.image('tile_path', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/tilemaps/tiles/tmw_desert_spacing.png');
                 this.load.image('hero_knight', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/phaser-dude.png');
                 this.load.image('tower_slime', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/slime.png');
-                this.load.image('invasor', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/aqua_ball.png');
+                this.load.image('invasor', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/treasure_chest.png');
                 this.load.image('tavern_bg', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/pics/backscroll.png');
                 this.load.image('icon_bed', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/block-slime.png');
                 this.load.image('icon_sword', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/sprites/blade.png');
@@ -313,87 +339,58 @@
                 PATH_POINTS.forEach(p => { const pos = getWorldPos(p.x, p.y); this.add.image(pos.x, pos.y, 'tile_path').setDisplaySize(64, 64); });
                 this.scene.launch('UIScene', { offlineGold });
 
-                // EVENT LISTENERS
-                this.events.on('hero_defeated', (g) => {
-                    GameState.gold += g; GameState.souls += 1; GameState.save(); this.events.emit('ui_update');
-                });
-                this.events.on('boss_defeated', (data) => {
-                    GameState.souls += data.souls; GameState.save(); this.events.emit('ui_update');
-                    this.showFloatingText(data.x, data.y, `+${data.souls} ALMAS`, '#9b59b6');
-                });
-                this.events.on('hero_escaped', () => {
-                    const loss = Math.floor(GameState.gold * 0.05);
-                    GameState.gold -= loss; GameState.save(); this.events.emit('ui_update');
-                    this.showFloatingText(360, 100, `¡ROBADO! -${loss} Oro`, '#ff0000');
-                });
-                this.events.on('boss_escaped', () => {
-                    this.enemiesSpawnedInWave = 0; // Restart wave
-                    this.isWaveActive = false;
-                    this.waveWaitTimer = 2000;
-                    this.showFloatingText(360, 640, "EL JEFE ESCAPÓ\nREINICIANDO OLEADA", '#ff0000');
-                });
+                this.events.on('hero_defeated', (g) => { GameState.gold += g; GameState.souls += 1; GameState.save(); this.events.emit('ui_update'); });
+                this.events.on('boss_defeated', (data) => { GameState.souls += data.souls; GameState.save(); this.events.emit('ui_update'); this.showFloatingText(data.x, data.y, `+${data.souls} ALMAS`, '#9b59b6'); });
+                this.events.on('hero_escaped', () => { const loss = Math.floor(GameState.gold * 0.05); GameState.gold -= loss; GameState.save(); this.events.emit('ui_update'); this.showFloatingText(360, 100, `¡ROBADO! -${loss} Oro`, '#ff0000'); });
+                this.events.on('boss_escaped', () => { this.enemiesSpawnedInWave = 0; this.isWaveActive = false; this.waveWaitTimer = 2000; this.showFloatingText(360, 640, "EL JEFE ESCAPÓ\nREINICIANDO OLEADA", '#ff0000'); });
 
                 this.input.on('pointerdown', (p) => {
-                    if (!this.isPlacingTower) return;
-                    const c = Math.floor((p.x - 8) / 64), r = Math.floor(p.y / 64);
-                    if (c<0 || c>=11 || r<0 || r>=20 || PATH_POINTS.some(path => path.x === c && path.y === r)) return;
-                    if (this.towers.some(t => Math.floor((t.x - 8) / 64) === c && Math.floor(t.y / 64) === r)) return;
-                    const config = this.pendingType === 'slime' ? { type: 'slime', damage: 15, range: 150, fireRate: 800 } : { type: 'red', damage: 40, range: 250, fireRate: 1500, tint: 0xff0000 };
-                    const pos = getWorldPos(c, r); this.towers.push(new Tower(this, pos.x, pos.y, config));
-                    this.isPlacingTower = false; if (this.preview) this.preview.destroy();
-                    this.events.emit('ui_update'); this.events.emit('placement_finished');
+                    if (this.isPlacingTower) {
+                        const c = Math.floor((p.x - 8) / 64), r = Math.floor(p.y / 64);
+                        if (c<0 || c>=11 || r<0 || r>=20 || PATH_POINTS.some(path => path.x === c && path.y === r)) return;
+                        if (this.towers.some(t => Math.floor((t.x - 8) / 64) === c && Math.floor(t.y / 64) === r)) return;
+                        const config = this.pendingType === 'slime' ? { type: 'slime', damage: 15, range: 150, fireRate: 800 } : { type: 'red', damage: 40, range: 250, fireRate: 1500, tint: 0xff0000 };
+                        const pos = getWorldPos(c, r); this.towers.push(new Tower(this, pos.x, pos.y, config));
+                        this.isPlacingTower = false; if (this.preview) this.preview.destroy();
+                        this.events.emit('ui_update'); this.events.emit('placement_finished');
+                    } else { this.selectMonster(null); }
                 });
                 this.input.on('pointermove', (p) => { if (this.isPlacingTower && this.preview) { this.preview.x = p.x; this.preview.y = p.y; } });
             }
-            startPlacement(type) {
-                this.events.emit('placement_started');
-                if (this.preview) this.preview.destroy();
-                this.isPlacingTower = true; this.pendingType = type;
-                this.preview = this.add.sprite(0, 0, 'tower_slime').setAlpha(0.6).setDepth(200);
-                if (type === 'red') this.preview.setTint(0xff0000);
+            startPlacement(type) { this.selectMonster(null); this.events.emit('placement_started'); if (this.preview) this.preview.destroy(); this.isPlacingTower = true; this.pendingType = type; this.preview = this.add.sprite(0, 0, 'tower_slime').setAlpha(0.6).setDepth(200); if (type === 'red') this.preview.setTint(0xff0000); }
+            selectMonster(m) { if (this.selectedMonster) this.selectedMonster.setSelected(false); this.selectedMonster = m; if (m) { m.setSelected(true); this.events.emit('monster_selected', m); } else { this.events.emit('monster_deselected'); } }
+            sellSelectedMonster() {
+                if (!this.selectedMonster) return;
+                const cost = 50 + ((GameState.monstersPurchased - 1) * 10);
+                GameState.gold += Math.floor(cost * 0.5); GameState.save();
+                const idx = this.towers.indexOf(this.selectedMonster); if (idx > -1) this.towers.splice(idx, 1);
+                this.selectedMonster.destroy(); this.selectedMonster = null;
+                this.events.emit('ui_update'); this.events.emit('monster_deselected');
             }
-            showFloatingText(x, y, message, color) {
-                const txt = this.add.text(x, y, message, { fontSize: '32px', fill: color, fontStyle: 'bold', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(300);
-                this.tweens.add({ targets: txt, y: y - 100, alpha: 0, duration: 2000, onComplete: () => txt.destroy() });
-            }
+            pauseGame() { this.physics.pause(); this.tweens.pauseAll(); this.invasors.forEach(i => { if (i.floatTween) i.floatTween.pause(); }); this.isGamePaused = true; }
+            resumeGame() { this.physics.resume(); this.tweens.resumeAll(); this.invasors.forEach(i => { if (i.floatTween) i.floatTween.resume(); }); this.isGamePaused = false; }
+            showFloatingText(x, y, msg, col) { const txt = this.add.text(x, y, msg, { fontSize: '32px', fill: col, fontStyle: 'bold', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(300); this.tweens.add({ targets: txt, y: y - 100, alpha: 0, duration: 2000, onComplete: () => txt.destroy() }); }
             update(time, delta) {
-                if (!this.isWaveActive) {
-                    if (this.waveWaitTimer > 0) this.waveWaitTimer -= delta;
-                    else { this.isWaveActive = true; this.enemiesSpawnedInWave = 0; this.events.emit('ui_update'); }
-                } else {
-                    const isBossWave = GameState.wave % 10 === 0;
-                    const maxEnemies = isBossWave ? 1 : 10;
-
-                    if (this.enemiesSpawnedInWave < maxEnemies) {
-                        if (time > this.nextWaveTime) {
-                            const hpBase = Math.round(50 * Math.pow(1.15, GameState.wave - 1));
-                            const lootBase = Math.round(15 * Math.pow(1.10, GameState.wave - 1));
-
-                            if (isBossWave) {
-                                this.enemies.push(new Hero(this, PATH_POINTS, { hp: hpBase * 5, loot: 50, speed: 60, isBoss: true }));
-                            } else {
-                                this.enemies.push(new Hero(this, PATH_POINTS, { hp: hpBase, loot: lootBase, speed: 120 }));
-                            }
-                            this.enemiesSpawnedInWave++; this.nextWaveTime = time + 2000;
-                        }
-                    } else if (this.enemies.length === 0) {
-                        this.isWaveActive = false; GameState.wave++; GameState.save(); this.waveWaitTimer = 3000; this.events.emit('ui_update');
-                    }
+                if (this.isGamePaused) return;
+                if (!this.isWaveActive) { if (this.waveWaitTimer > 0) this.waveWaitTimer -= delta; else { this.isWaveActive = true; this.enemiesSpawnedInWave = 0; this.events.emit('ui_update'); } } else {
+                    const isBoss = GameState.wave % 10 === 0;
+                    if (this.enemiesSpawnedInWave < (isBoss ? 1 : 10)) { if (time > this.nextWaveTime) {
+                        const hp = Math.round(50 * Math.pow(1.15, GameState.wave - 1));
+                        const loot = Math.round(15 * Math.pow(1.10, GameState.wave - 1));
+                        this.enemies.push(new Hero(this, PATH_POINTS, isBoss ? { hp: hp * 5, loot: 50, speed: 60, isBoss: true } : { hp, loot, speed: 120 }));
+                        this.enemiesSpawnedInWave++; this.nextWaveTime = time + 2000;
+                    } } else if (this.enemies.length === 0) { this.isWaveActive = false; GameState.wave++; GameState.save(); this.waveWaitTimer = 3000; this.events.emit('ui_update'); }
                 }
-                if (time > this.nextInvasorTime) { this.invasors.push(new Invasor(this)); this.nextInvasorTime = time + Phaser.Math.Between(10000, 20000); }
+                if (time > this.nextInvasorTime) { this.invasors.push(new Invasor(this)); this.nextInvasorTime = time + Phaser.Math.Between(45000, 60000); }
                 this.invasors = this.invasors.filter(i => { if (i.active) { i.update(delta); return true; } return false; });
                 this.enemies = this.enemies.filter(e => { if (e.active) { e.update(time, delta); return true; } return false; });
                 this.towers.forEach(t => t.update(time, this.enemies));
-
                 if (!this.lastPassiveTime) this.lastPassiveTime = time;
-                if (time - this.lastPassiveTime >= 2000) {
-                    GameState.gold += GameState.passiveGoldRate; this.events.emit('ui_update');
-                    this.lastPassiveTime = time; GameState.save();
-                }
+                if (time - this.lastPassiveTime >= 2000) { GameState.gold += GameState.passiveGoldRate; this.events.emit('ui_update'); this.lastPassiveTime = time; GameState.save(); }
             }
         }
 
-        new Phaser.Game({ type: Phaser.AUTO, width: 720, height: 1280, parent: 'game-container', scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }, physics: { default: 'arcade' }, scene: [GameScene, UIScene] });
+        window.game = new Phaser.Game({ type: Phaser.AUTO, width: 720, height: 1280, parent: 'game-container', scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }, physics: { default: 'arcade' }, scene: [GameScene, UIScene] });
     </script>
 </body>
 </html>

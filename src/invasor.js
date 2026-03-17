@@ -14,7 +14,7 @@ export class Invasor extends Phaser.GameObjects.Sprite {
         this.speed = Phaser.Math.Between(150, 250);
 
         // Float effect
-        scene.tweens.add({
+        this.floatTween = scene.tweens.add({
             targets: this,
             y: startY + 50,
             duration: 1000,
@@ -25,6 +25,7 @@ export class Invasor extends Phaser.GameObjects.Sprite {
     }
 
     update(time, delta) {
+        if (this.scene.isGamePaused) return;
         this.x += this.speed * (delta / 1000);
         if (this.x > 770) {
             this.destroy();
@@ -32,25 +33,6 @@ export class Invasor extends Phaser.GameObjects.Sprite {
     }
 
     claimReward() {
-        GameState.souls += 5;
-        GameState.save();
-        this.scene.events.emit('ui_update');
-
-        // Visual feedback
-        const text = this.scene.add.text(this.x, this.y, '+5 Almas!', {
-            fontSize: '32px',
-            fill: '#9b59b6',
-            fontStyle: 'bold'
-        }).setOrigin(0.5);
-
-        this.scene.tweens.add({
-            targets: text,
-            y: this.y - 100,
-            alpha: 0,
-            duration: 1000,
-            onComplete: () => text.destroy()
-        });
-
-        this.destroy();
+        this.scene.events.emit('invasor_clicked', this);
     }
 }

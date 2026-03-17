@@ -21,7 +21,23 @@ export class Tower extends Phaser.GameObjects.Container {
         this.add(this.rangeCircle);
         this.rangeCircle.setVisible(false);
 
+        // Interaction
+        this.sprite.setInteractive();
+        this.sprite.on('pointerdown', (pointer) => {
+            pointer.stopPropagation(); // Prevent GameScene from thinking we are placing a tower
+            this.scene.selectMonster(this);
+        });
+
         scene.add.existing(this);
+    }
+
+    setSelected(selected) {
+        this.rangeCircle.setVisible(selected);
+        if (selected) {
+            this.sprite.setAlpha(0.8);
+        } else {
+            this.sprite.setAlpha(1.0);
+        }
     }
 
     update(time, delta, enemies) {

@@ -78,7 +78,11 @@ class GameScene extends Phaser.Scene {
 
         // Input: Place tower on click (Draft)
         this.input.on('pointerdown', (pointer) => {
-            this.placeTower(pointer.x, pointer.y);
+            if (this.isPlacingTower) {
+                this.placeTower(pointer.x, pointer.y);
+            } else {
+                this.selectMonster(null);
+            }
         });
 
         // Mouse move for placement preview
@@ -91,6 +95,7 @@ class GameScene extends Phaser.Scene {
     }
 
     startPlacement(type) {
+        this.selectMonster(null);
         this.events.emit('placement_started');
         if (this.placementPreview) this.placementPreview.destroy();
         this.isPlacingTower = true;
@@ -117,6 +122,39 @@ class GameScene extends Phaser.Scene {
             const pos = getWorldPos(p.x, p.y);
             this.add.image(pos.x, pos.y, 'tile_path');
         });
+    }
+
+    selectMonster(monster) {
+        if (this.selectedMonster) {
+            this.selectedMonster.setSelected(false);
+        }
+        this.selectedMonster = monster;
+        if (this.selectedMonster) {
+            this.selectedMonster.setSelected(true);
+            this.events.emit('monster_selected', this.selectedMonster);
+        } else {
+            this.events.emit('monster_deselected');
+        }
+    }
+
+    sellSelectedMonster() {
+        if (!this.selectedMonster) return;
+
+        const cost = 50 + ((GameState.monstersPurchased - 1) * 10);
+        const sellValue = Math.floor(cost * 0.5);
+
+        GameState.gold += sellValue;
+        GameState.save();
+
+        const index = this.towers.indexOf(this.selectedMonster);
+        if (index > -1) {
+            this.towers.splice(index, 1);
+        }
+        this.selectedMonster.destroy();
+        this.selectedMonster = null;
+
+        this.events.emit('ui_update');
+        this.events.emit('monster_deselected');
     }
 
     placeTower(x, y) {
@@ -189,6 +227,8 @@ class GameScene extends Phaser.Scene {
     }
 
     update(time, delta) {
+        if (this.isGamePaused) return;
+
         // Wave logic
         if (!this.isWaveActive) {
             if (this.waveWaitTimer > 0) {
@@ -290,6 +330,26 @@ class GameScene extends Phaser.Scene {
         const inv = new Invasor(this);
         this.invasors.push(inv);
     }
+
+    pauseGame() {
+        this.physics.pause();
+        this.tweens.pauseAll();
+        // Pause all invasors
+        this.invasors.forEach(inv => {
+            if (inv.floatTween) inv.floatTween.pause();
+        });
+        // Note: update(time, delta) will still run but we can check a flag
+        this.isGamePaused = true;
+    }
+
+    resumeGame() {
+        this.physics.resume();
+        this.tweens.resumeAll();
+        this.invasors.forEach(inv => {
+            if (inv.floatTween) inv.floatTween.resume();
+        });
+        this.isGamePaused = false;
+    }
 }
 
 const config = {
@@ -308,4 +368,4 @@ const config = {
     scene: [GameScene, UIScene]
 };
 
-const game = new Phaser.Game(config);
+window.game = new Phaser.Game(config);
